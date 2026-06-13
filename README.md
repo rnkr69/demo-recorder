@@ -5,6 +5,15 @@
 
 Record **deterministic** hero/demo videos of any web app — smooth, repeatable, and fully scripted.
 
+## Demo
+
+> The video below was recorded **by demo-recorder itself** — the landing page in
+> [`presentation/`](presentation/) scripted by [`hero.yml`](hero.yml). 🎬
+
+https://github.com/user-attachments/assets/fd43a9ea-c4ba-47b0-9689-1df256cf58b1
+
+
+
 Recording product demos by hand (OBS and friends) never looks polished: the mouse jitters, timing is
 inconsistent, and every take is different. `demo-recorder` solves that with a scripted pipeline:
 
