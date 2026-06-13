@@ -4,6 +4,28 @@
   "description": "Graba vídeos hero/demo deterministas de cualquier web app (Playwright recordVideo + capa de coreografía + ffmpeg).",
   "type": "module",
   "license": "MIT",
+  "author": "rnkr69",
+  "keywords": [
+    "demo",
+    "screencast",
+    "playwright",
+    "ffmpeg",
+    "video",
+    "hero-video",
+    "tts",
+    "screen-recording"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rnkr69/video-hero.git"
+  },
+  "homepage": "https://github.com/rnkr69/video-hero#readme",
+  "bugs": {
+    "url": "https://github.com/rnkr69/video-hero/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "bin": {
     "demo-recorder": "bin/demo-recorder.js"
   },
