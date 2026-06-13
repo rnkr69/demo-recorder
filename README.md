@@ -53,7 +53,7 @@ re-recording after a UI tweak is a one-command operation rather than a fresh man
 ## Installation
 
 ```powershell
-cd C:\wamp64_337\www\video_hero
+cd C:\XXX\video_hero
 npm install
 npm link          # registers the global `demo-recorder` command (use it from any project)
 
