@@ -1,0 +1,71 @@
+# Hero/presentation video for demo-recorder ITSELF (meta!). Records the self-contained
+# landing page in presentation/index.html with a scripted camera tour.
+#   demo-recorder probe  hero.yml
+#   demo-recorder record hero.yml
+#   demo-recorder encode hero.yml     (or: demo-recorder run hero.yml)
+
+url: file:///C:/wamp64_337/www/video_hero/presentation/index.html
+width: 1280
+height: 800
+scale: 2
+headless: true
+out: out
+
+steps:
+  # 1 — hero title (cinematic push-in)
+  - caption: 'Deterministic demo videos of any web app.'
+  - hold: 2400
+  - zoomFit: { sel: '#hero-title', scale: 1.5 }
+  - hold: 2000
+  - resetZoom: true
+  - hold: 300
+
+  # 2 — write the script, run it
+  - caption: 'You script the demo once in a small YAML file.'
+  - zoomFit: { sel: '#terminal', fill: 0.95 }
+  - hold: 700
+  - type: { sel: '#cmd', text: 'demo-recorder run demo.yml', cps: 20 }
+  - hold: 1600
+  - caption: 'Then just run it — probe, record, encode.'
+  - click: '#run'
+  - waitFor: '#term-done'
+  - hold: 2400
+  - resetZoom: true
+  - hold: 300
+
+  # 3 — the pipeline
+  - caption: 'Real pixels in, a polished MP4 out.'
+  - zoomFit: { sel: '#pipeline', fill: 0.98 }
+  - hold: 2800
+  - resetZoom: true
+  - hold: 300
+
+  # 4 — features (full frame: all four cards readable while narrating)
+  - caption: 'Voice, subtitles, music and zoom — all built in.'
+  - hold: 4800
+
+  # 5 — outro (final beauty shot)
+  - caption: 'demo-recorder — free and open source.'
+  - hold: 3600
+  - caption: ''
+  - hold: 400
+
+encode:
+  captionsMp4: out/work/hero-cc.mp4      # intermediate (burned subs) → out/work/
+  narrateMp4: out/hero.mp4               # voice over the captioned video; music laid on top
+  ttsOpts:
+    voice: en-US-AriaNeural              # clear English voice (edge-tts, free)
+    music:
+      track: ambient-gold
+      full: 0.7
+      duck: 0.14
+  mp4opts: { fps: 30 }
+  intro:
+    engine: ffmpeg
+    prependTo: out/hero.mp4
+    result: out/hero-intro.mp4           # FINAL (intro + demo + continuous music)
+    duration: 2.6
+    title: 'demo-recorder'
+    subtitle: 'deterministic demo videos of any web app'
+    bg: '#0B0F1A'
+    animation: fade-zoom

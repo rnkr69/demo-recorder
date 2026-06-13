@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280, initial-scale=1">
+<title>demo-recorder</title>
+<style>
+  :root{
+    --bg:#0B0F1A; --bg2:#0e1424; --card:#121a2e; --line:#22304e;
+    --txt:#eaf0ff; --mut:#93a1c0; --acc:#6C5CE7; --acc2:#36d3c4; --gold:#f5c451;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{width:1280px;height:800px;overflow:hidden}
+  body{
+    background:
+      radial-gradient(1200px 600px at 80% -10%, rgba(108,92,231,.22), transparent 60%),
+      radial-gradient(900px 500px at -10% 110%, rgba(54,211,196,.16), transparent 55%),
+      var(--bg);
+    color:var(--txt);
+    font-family:"Segoe UI",system-ui,-apple-system,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{width:1280px;height:800px;padding:40px 56px;display:flex;flex-direction:column;gap:22px}
+
+  /* header */
+  header{display:flex;align-items:center;justify-content:space-between}
+  #brand{display:flex;align-items:center;gap:14px}
+  .logo{width:46px;height:46px;border-radius:13px;display:grid;place-items:center;
+    background:linear-gradient(140deg,var(--acc),#4334b0);box-shadow:0 8px 24px rgba(108,92,231,.45)}
+  .logo svg{width:26px;height:26px}
+  .word{font-size:26px;font-weight:700;letter-spacing:.2px}
+  .word b{color:var(--acc2)}
+  .badges{display:flex;gap:10px}
+  .badge{font-size:13px;color:var(--mut);border:1px solid var(--line);
+    padding:6px 12px;border-radius:999px;background:rgba(255,255,255,.02)}
+  .badge.gold{color:var(--gold);border-color:rgba(245,196,81,.35)}
+
+  /* hero title */
+  #hero{margin-top:4px}
+  #hero-title{font-size:50px;line-height:1.06;font-weight:800;letter-spacing:-.5px}
+  #hero-title .g{background:linear-gradient(90deg,var(--acc2),var(--acc));
+    -webkit-background-clip:text;background-clip:text;color:transparent}
+  #hero-sub{margin-top:12px;font-size:19px;color:var(--mut);max-width:760px}
+
+  /* main grid */
+  .main{flex:1;display:grid;grid-template-columns:1.05fr .95fr;gap:26px;min-height:0}
+
+  /* terminal */
+  #terminal{background:#0a0e1a;border:1px solid var(--line);border-radius:16px;
+    overflow:hidden;display:flex;flex-direction:column;box-shadow:0 20px 50px rgba(0,0,0,.45)}
+  .term-bar{display:flex;align-items:center;gap:8px;padding:12px 16px;background:#0d1322;border-bottom:1px solid var(--line)}
+  .dot{width:12px;height:12px;border-radius:50%}
+  .dot.r{background:#ff5f57}.dot.y{background:#febc2e}.dot.g{background:#28c840}
+  .term-title{margin-left:10px;font-size:13px;color:var(--mut)}
+  .term-body{padding:18px 20px;font-family:"Cascadia Code",Consolas,monospace;font-size:15px;line-height:1.7;flex:1}
+  .prompt{display:flex;align-items:center;gap:10px}
+  .chev{color:var(--acc2);font-weight:700}
+  #cmd{flex:1;background:transparent;border:none;outline:none;color:var(--txt);
+    font-family:inherit;font-size:15px;caret-color:var(--acc2)}
+  #run{margin-top:14px;display:inline-flex;align-items:center;gap:8px;cursor:pointer;
+    background:linear-gradient(140deg,var(--acc),#4a3ab5);color:#fff;border:none;
+    font-size:14px;font-weight:600;padding:9px 16px;border-radius:10px}
+  #term-out{margin-top:16px;display:flex;flex-direction:column;gap:6px}
+  .ln{opacity:0;transform:translateY(4px);transition:all .25s ease;color:var(--mut);font-size:14px}
+  .ln.show{opacity:1;transform:none}
+  .ln .ok{color:var(--acc2)}.ln .fn{color:var(--gold)}
+
+  /* pipeline */
+  #pipeline{background:var(--card);border:1px solid var(--line);border-radius:16px;
+    padding:22px;display:flex;flex-direction:column;gap:14px}
+  .p-h{font-size:13px;text-transform:uppercase;letter-spacing:1.5px;color:var(--mut)}
+  .flow{display:flex;flex-direction:column;gap:12px}
+  .stage{display:flex;align-items:center;gap:14px;padding:13px 15px;border-radius:12px;
+    background:rgba(255,255,255,.025);border:1px solid var(--line)}
+  .stage .ic{width:38px;height:38px;border-radius:10px;display:grid;place-items:center;flex:none;
+    background:rgba(108,92,231,.16);font-size:19px}
+  .stage .tx b{display:block;font-size:15px}
+  .stage .tx span{font-size:13px;color:var(--mut)}
+  .arrow{align-self:center;color:var(--acc);font-size:16px;margin:-6px 0}
+
+  /* features */
+  #features{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+  .feat{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px}
+  .feat .fi{font-size:22px}
+  .feat b{display:block;margin-top:8px;font-size:15px}
+  .feat span{display:block;margin-top:4px;font-size:12.5px;color:var(--mut);line-height:1.45}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div id="brand">
+        <div class="logo">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M5 3.2l14 8.8-14 8.8z" fill="#fff"/></svg>
+        </div>
+        <div class="word">demo<b>-recorder</b></div>
+      </div>
+      <div class="badges">
+        <div class="badge gold">★ MIT</div>
+        <div class="badge">Node 20+</div>
+        <div class="badge">No API keys</div>
+      </div>
+    </header>
+
+    <div id="hero">
+      <div id="hero-title"><span class="g">Deterministic</span> demo videos<br>of any web app.</div>
+      <div id="hero-sub">Script it once. Playwright captures real pixels with a synthetic cursor,
+        typing and cinematic auto-zoom — ffmpeg adds voice, subtitles and music. Same script, same
+        video, every run.</div>
+    </div>
+
+    <div class="main">
+      <div id="terminal">
+        <div class="term-bar">
+          <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+          <span class="term-title">demo — recording a hero video</span>
+        </div>
+        <div class="term-body">
+          <div class="prompt"><span class="chev">❯</span><input id="cmd" value="" autocomplete="off"></div>
+          <button id="run">▶ Run</button>
+          <div id="term-out"></div>
+        </div>
+      </div>
+
+      <div id="pipeline">
+        <div class="p-h">The pipeline</div>
+        <div class="flow">
+          <div class="stage"><div class="ic">🗂️</div><div class="tx"><b>Your app</b><span>real or mocked — deterministic source</span></div></div>
+          <div class="arrow">▼</div>
+          <div class="stage"><div class="ic">🎬</div><div class="tx"><b>Playwright recordVideo</b><span>real pixels + cursor · typing · auto-zoom</span></div></div>
+          <div class="arrow">▼</div>
+          <div class="stage"><div class="ic">✨</div><div class="tx"><b>ffmpeg</b><span>voice · subtitles · music · intro</span></div></div>
+          <div class="arrow">▼</div>
+          <div class="stage"><div class="ic">📦</div><div class="tx"><b>MP4 / GIF</b><span>ready for your README</span></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="features">
+      <div class="feat" id="f1"><div class="fi">🎯</div><b>Deterministic</b><span>Same script, identical video — every single run.</span></div>
+      <div class="feat" id="f2"><div class="fi">🖱️</div><b>Polished motion</b><span>Eased cursor, click pulses, Screen-Studio zoom.</span></div>
+      <div class="feat" id="f3"><div class="fi">🗣️</div><b>Voice & subtitles</b><span>Free TTS and clean burned-in captions.</span></div>
+      <div class="feat" id="f4"><div class="fi">🌍</div><b>From any project</b><span>One global CLI records all your apps.</span></div>
+    </div>
+  </div>
+
+<script>
+  // "Run" reveals the recorder's output, one line at a time (so the recording shows it appear).
+  const OUT = [
+    ['❯ ', 'demo-recorder probe demo.yml', ''],
+    ['', '✓ probe OK — 12 steps passed', 'ok'],
+    ['❯ ', 'demo-recorder run demo.yml', ''],
+    ['', 'VIDEO: out/raw/page@9f3.webm', ''],
+    ['', 'CAPTIONS · NARRATE · MUSIC · INTRO', ''],
+    ['', '✓ MP4: out/hero.mp4', 'done'],
+  ];
+  const out = document.getElementById('term-out');
+  let ran = false;
+  document.getElementById('run').addEventListener('click', () => {
+    if (ran) return; ran = true;
+    OUT.forEach((row, i) => {
+      setTimeout(() => {
+        const d = document.createElement('div');
+        d.className = 'ln';
+        const cls = row[2] === 'ok' ? 'ok' : row[2] === 'done' ? 'ok' : '';
+        d.innerHTML = (row[0] ? '<span class="chev">'+row[0]+'</span>' : '') +
+          '<span class="'+cls+'">'+row[1]+'</span>';
+        if (row[2] === 'done') d.id = 'term-done';
+        out.appendChild(d);
+        requestAnimationFrame(() => d.classList.add('show'));
+      }, 220 * (i + 1));
+    });
+  });
+</script>
+</body>
+</html>
