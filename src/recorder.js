@@ -47,6 +47,26 @@ class Driver {
     this.t0 = Date.now();   // overwritten by record() to align with the video start
     this.idle = [];         // [start,end] seconds of "nothing happening" (the holds)
     this.captions = [];     // [{t,text}] caption events; each lasts until the next one
+    this.events = [];       // [{t,kind,...}] visual beats (clicks/zooms/types…) for step-synced SFX
+  }
+  // Timestamp a visual beat onto the video timeline (same t0 as idle/captions). Consumed by the
+  // SFX stage via the <video>.events.json sidecar.
+  mark(kind, extra = {}) {
+    this.events.push({ t: (Date.now() - this.t0) / 1000, kind, ...extra });
+  }
+  // The element's center + size in VIDEO pixels (CSS px × deviceScaleFactor), for the focus
+  // timeline the smart-crop reframe follows. Best-effort: returns null if it can't resolve.
+  async _rect(sel) {
+    try {
+      const r = await this.page.evaluate((s) => {
+        const el = window.__demo.resolveEl(s); if (!el) return null;
+        const b = el.getBoundingClientRect();
+        return { cx: b.left + b.width / 2, cy: b.top + b.height / 2, w: b.width, h: b.height };
+      }, sel);
+      if (!r) return null;
+      const k = this.scale || 1;
+      return { cx: r.cx * k, cy: r.cy * k, w: r.w * k, h: r.h * k };
+    } catch { return null; }
   }
   goto(url, opts = {}) { return this.page.goto(url, { waitUntil: 'networkidle', ...opts }); }
   // A static pause. Recorded as an idle segment so encode.speedupIdle can compress it.
@@ -59,12 +79,63 @@ class Driver {
   caption(text) {
     this.captions.push({ t: (Date.now() - this.t0) / 1000, text: text == null ? '' : String(text) });
   }
-  moveTo(sel, ms) { return this.page.evaluate(([s, m]) => window.__demo.moveToSel(s, m), [sel, ms]); }
-  type(sel, text, cps) { return this.page.evaluate(([s, t, c]) => window.__demo.typeInto(s, t, c), [sel, text, cps]); }
-  zoomTo(sel, scale, ms) { return this.page.evaluate(([s, sc, m]) => window.__demo.zoomToSel(s, sc, m), [sel, scale, ms]); }
+  moveTo(sel, ms, opts = {}) {
+    this.mark('move', { sel });
+    return this.page.evaluate(([s, m, o]) => window.__demo.moveToSel(s, m, o), [sel, ms, opts]);
+  }
+  type(sel, text, cps) {
+    this.mark('type', { sel });
+    return this.page.evaluate(([s, t, c]) => window.__demo.typeInto(s, t, c), [sel, text, cps]);
+  }
+  async zoomTo(sel, scale, ms) {
+    this.mark('zoom', { sel, scale, rect: await this._rect(sel) });
+    return this.page.evaluate(([s, sc, m]) => window.__demo.zoomToSel(s, sc, m), [sel, scale, ms]);
+  }
   // Auto-zoom: frame an element's bounding box (scale auto-derived; see cursor-kit frameTo).
-  zoomToFit(sel, opts = {}) { return this.page.evaluate(([s, o]) => window.__demo.frameTo(s, o), [sel, opts]); }
-  resetZoom(ms) { return this.page.evaluate((m) => window.__demo.reset(m), ms); }
+  // opts.spotlight (true | {dim,pad,radius}) also dims everything but the framed element.
+  async zoomToFit(sel, opts = {}) {
+    const rect = await this._rect(sel);
+    this.mark('zoom', { sel, rect });
+    const { spotlight, ...frameOpts } = opts;
+    await this.page.evaluate(([s, o]) => window.__demo.frameTo(s, o), [sel, frameOpts]);
+    if (spotlight) {
+      this.mark('spotlight', { sel, rect });
+      const so = (spotlight && typeof spotlight === 'object') ? spotlight : {};
+      await this.page.evaluate(([s, o]) => window.__demo.spotlight(s, o), [sel, so]);
+    }
+  }
+  resetZoom(ms) { this.mark('zoomOut'); return this.page.evaluate((m) => window.__demo.reset(m), ms); }
+  // Dim everything but `sel` (standalone spotlight; resetZoom/reset clears it).
+  async spotlight(sel, opts = {}) {
+    this.mark('spotlight', { sel, rect: await this._rect(sel) });
+    return this.page.evaluate(([s, o]) => window.__demo.spotlight(s, o), [sel, opts]);
+  }
+  spotlightOff() { return this.page.evaluate(() => window.__demo.spotlightOff()); }
+  // Show pressed keys as on-screen capsules (e.g. 'cmd+k').
+  keycap(label, opts = {}) {
+    this.mark('keycap', { label });
+    return this.page.evaluate(([l, o]) => window.__demo.keycap(l, o), [label, opts]);
+  }
+  // Smooth eased scroll so `sel` is centered.
+  scrollTo(sel, opts = {}) {
+    this.mark('scroll', { sel });
+    return this.page.evaluate(([s, o]) => window.__demo.scrollToSel(s, o), [sel, opts]);
+  }
+  // Callout anchored to `sel`: opts.shape box|circle|arrow, opts.text, opts.side. resetZoom/reset
+  // (and annotateOff) clear all callouts + highlights.
+  annotate(sel, opts = {}) {
+    this.mark('annotate', { sel, shape: opts.shape || 'box' });
+    return this.page.evaluate(([s, o]) => window.__demo.annotate(s, o), [sel, opts]);
+  }
+  annotateOff() { return this.page.evaluate(() => window.__demo.annotateOff()); }
+  // Animated marker/underline wiped over `sel`'s text.
+  highlight(sel, opts = {}) {
+    this.mark('highlight', { sel });
+    return this.page.evaluate(([s, o]) => window.__demo.highlight(s, o), [sel, opts]);
+  }
+  // Name the current section. Emits a 'chapter' event (kind+text) the encode stage turns into an
+  // animated lower-third. Drawing is post-production (libass), so this is timeline-only here.
+  chapter(text) { this.mark('chapter', { text: text == null ? '' : String(text) }); }
   waitFor(selOrFn, opts = {}) {
     const timeout = this.waitTimeout || 20000; // configurable per recorder (waitTimeout)
     if (typeof selOrFn === 'function') return this.page.waitForFunction(selOrFn, undefined, { timeout, ...opts });
@@ -76,8 +147,9 @@ class Driver {
   //                 a selector string=frame that element, a number=fixed scale on the
   //                 clicked element, an object={sel?,scale?,fill?,max?,ms?}. Defaults to
   //                 the recorder-wide `autoZoom` mode when omitted; pass false to opt out.
-  async click(sel, { nav = false, ms, zoom } = {}) {
+  async click(sel, { nav = false, ms, zoom, variant, ripple, pop } = {}) {
     if (nav) {
+      this.mark('nav', { sel });
       const { x, y } = await this.page.evaluate(([s, m]) => window.__demo.moveToSel(s, m), [sel, ms]);
       await this.page.evaluate(([x, y]) => window.__demo.pulse(x, y), [x, y]);
       await Promise.all([
@@ -86,7 +158,8 @@ class Driver {
       ]);
       return;
     }
-    await this.page.evaluate(([s, m]) => window.__demo.clickSel(s, m), [sel, ms]);
+    this.mark('click', { sel, variant: variant || 'single', rect: await this._rect(sel) });
+    await this.page.evaluate(([s, m, o]) => window.__demo.clickSel(s, m, o), [sel, ms, { variant, ripple, pop }]);
     const z = zoom ?? (this.autoZoom ? true : null);
     if (z) {
       const target = typeof z === 'string' ? z : (typeof z === 'object' && z.sel) ? z.sel : sel;
@@ -184,6 +257,7 @@ export async function openSession({
   const driver = new Driver(page);
   driver.t0 = t0;
   driver.autoZoom = autoZoom;       // when true, every non-nav click auto-frames its target
+  driver.scale = scale;             // deviceScaleFactor → CSS px × scale = video px (for smart-crop)
   if (waitTimeout) driver.waitTimeout = waitTimeout;
   return { browser, context, page, driver };
 }
@@ -210,6 +284,10 @@ export async function record(flow, opts = {}) {
   }
   if (videoPath && driver.captions.length) {
     try { writeFileSync(`${videoPath}.captions.json`, JSON.stringify({ captions: driver.captions })); }
+    catch { /* non-fatal */ }
+  }
+  if (videoPath && driver.events.length) {
+    try { writeFileSync(`${videoPath}.events.json`, JSON.stringify({ events: driver.events })); }
     catch { /* non-fatal */ }
   }
   return videoPath;

@@ -1,0 +1,40 @@
+# Speed ramps deliberados: acelerón en lo aburrido + slow-mo en los momentos clave (clicks/zooms),
+# dirigido por el sidecar de eventos. Salida de VÍDEO aparte (re-timing → desincroniza subs/voz,
+# igual que idleMp4).
+#
+#   node examples/mock-server.mjs
+#   node src/run.js examples/ramps.yml
+#
+# Salida: out/ramps-demo.mp4 (ritmo dinámico).
+
+url: http://127.0.0.1:4317/
+width: 1280
+height: 800
+scale: 2
+headless: true
+out: out
+
+encode:
+  rampsMp4: out/ramps-demo.mp4
+  ramps:
+    base: 1.5            # velocidad base (acelera lo rutinario)
+    slowmo: 0.5          # velocidad en las ventanas clave (cámara lenta)
+    at: [click, zoom]    # beats alrededor de los que va el slow-mo (kinds del events.json)
+    window: 0.6          # s a cada lado del beat
+
+steps:
+  - hold: 500
+  - type: { sel: 'demo-chat >>> textarea', text: 'Muéstrame las ventas por región.', cps: 42 }
+  - click: 'demo-chat >>> button.send'
+  - waitFor: 'demo-chat table'
+  - hold: 600
+  - zoomFit: { sel: 'demo-chat >>> table' }
+  - hold: 2000
+  - resetZoom: true
+  - click: { sel: 'nav a[href="/dashboard"]', nav: true }
+  - waitFor: '#chart'
+  - hold: 600
+  - zoomFit: { sel: '#chart', fill: 0.9 }
+  - hold: 2000
+  - resetZoom: true
+  - hold: 400

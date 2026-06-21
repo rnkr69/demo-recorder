@@ -126,6 +126,44 @@ steps:
 - En `waitFor` (va por Playwright) usa **CSS normal**; Playwright atraviesa shadow roots
   abiertos solo. Ej: `mi-widget table`.
 
+### Pasos de efectos (coreografía)
+
+Encima de lo básico hay **pasos de efectos in-page**, dibujados en vivo durante la grabación (así
+salen en el contact-sheet — sin necesidad de encodear). Usan la misma sintaxis de selector `>>>`. El
+porqué estético de cada uno está en **[docs/MEJORAS_ESTETICAS.md](MEJORAS_ESTETICAS.md)**.
+
+```yaml
+steps:
+  # Máscara de atención (spotlight estilo Screen Studio): atenúa todo menos el elemento.
+  - spotlight: { sel: '#chart', dim: 0.6 }       # suelto
+  - zoomFit:   { sel: '#chart', spotlight: true } # …o acoplado a un auto-zoom
+  - spotlightOff: true                            # (resetZoom también la quita)
+
+  # Keycaps en pantalla (atajos): 'cmd+k' → cápsulas ⌘ + K.
+  - keycap: 'cmd+k'                               # alias: `key`
+
+  # Callouts / anotaciones ancladas a un elemento (lo siguen bajo el zoom).
+  - annotate: { sel: '#send', shape: arrow, side: left, text: 'Click aquí', color: '#FFCC00' }
+  - annotate: { sel: '#row',  shape: box,    text: 'Resultado' }   # box | circle | arrow
+  - annotateOff: true                             # (resetZoom también quita callouts + resaltados)
+
+  # Barrido de resaltado animado (marcador / subrayado).
+  - highlight: { sel: 'h1', mode: marker, color: 'rgba(255,214,0,.40)' }
+
+  # Scroll suave con easing (en vez de un salto brusco).
+  - scroll: { sel: '#section', ms: 700 }
+
+  # Variantes de click + pop de atención + anillo de ripple.
+  - click: { sel: '#row', variant: double }       # single (def) | double | right
+  - click: { sel: '#kpi', ripple: true, pop: true }
+
+  # Personalidad del cursor: un pequeño rebote al llegar + un trail que se desvanece.
+  - move: { sel: '#cta', overshoot: true, trail: true }
+
+  # Nombra la sección actual → se renderiza como lower-third animado al encodear.
+  - chapter: '1. Pregunta en lenguaje natural'
+```
+
 ---
 
 ## 4. Grabar tu web real, paso a paso
@@ -266,9 +304,9 @@ Claves:
 - **No combines** subtítulos/voz con `idleMp4`: el acelerado cambia la línea de tiempo y
   desincroniza. Saca por un lado el vídeo con voz/subtítulos y por otro el acelerado.
 
-### Mejoras estéticas (subs con trazo, intro, música)
+### Mejoras estéticas (subs, intro, música, SFX, reencuadre, outro…)
 
-Cuatro extras se documentan en detalle en **[docs/MEJORAS_ESTETICAS.md](MEJORAS_ESTETICAS.md)**:
+Todo esto se documenta en detalle en **[docs/MEJORAS_ESTETICAS.md](MEJORAS_ESTETICAS.md)**:
 
 - **Elegir pistas** — las 4 combinaciones (solo vídeo / +audio / +subs / +ambos). Para
   **audio sin subs**, usa `narrateMp4` sin `captionsMp4` (ejemplo `examples/voice-only.yml`).
@@ -282,16 +320,49 @@ Cuatro extras se documentan en detalle en **[docs/MEJORAS_ESTETICAS.md](MEJORAS_
 - **Música de fondo con ducking** — `ttsOpts.music` baja la música antes del primer TTS, la
   sube en huecos largos y la devuelve al final. **3 pistas incluidas** (alias `ambient-gold`,
   `sidewalk-chalk`, `she-said-i-wonder`; `demo-recorder tracks`) o tu propio audio. Ejemplo `examples/intro-music.yml`.
+- **Plantillas de intro + match-cut** — `intro.template` (`minimal`/`bold`/`terminal`/`mesh`),
+  `intro.typewriter`, e `intro.matchCut` (o `encode.transition`) para disolver/zoom intro→demo
+  en vez de un corte seco. Ejemplo `examples/match-cut.yml`.
+- **Outro de cierre** — `encode.outro` (espejo de la intro: tarjeta animada con CTA/URL/logo);
+  intro+demo+outro comparten una misma cama musical continua. Ejemplo `examples/outro.yml`.
+- **SFX sincronizados con los pasos** — `encode.sfx` reproduce efectos de sonido cortos sobre los
+  beats grabados (clicks, zooms, keycaps) desde el sidecar `<video>.events.json`, mezclados sobre el
+  audio ya con ducking. Trae 4 SFX incluidos (`click`/`whoosh`/`key`/`chime`); sobrescríbelos con los
+  tuyos. Ejemplo `examples/sfx.yml`.
+- **Reencuadre multi-formato** — `encode.reframe: ['9:16','1:1']` exporta relaciones de aspecto
+  extra con relleno difuminado (para redes) desde la misma grabación. Ejemplo `examples/sfx.yml`.
+- **Lower-thirds + watermark** — `encode.lowerThirds` convierte los pasos `chapter:` en una tira de
+  capítulos animada; `encode.watermark` añade una marca de agua en la esquina (texto o logo). Ejemplo
+  `examples/chapters.yml`.
+- **Speed ramps** — `encode.rampsMp4` + `ramps` ponen en cámara lenta los beats clave (click/zoom)
+  sobre una velocidad base ágil (una salida solo-vídeo aparte, como `idleMp4`). Ejemplo `examples/ramps.yml`.
+- **Transiciones de sección** — `encode.transitions` puntúa los beats `nav`/`chapter` con un xfade
+  estilizado (zoom-blur/whip) en vez de un corte seco. Ejemplo `examples/transitions.yml`.
+- **Subtítulos karaoke** — `captionsOpts.karaoke` rellena los subtítulos palabra a palabra en sync con
+  el TTS. Ejemplo `examples/karaoke.yml`.
+- **Smart-crop + barra de progreso + grade** — `encode.reframe.follow` hace que el recorte 9:16 siga la
+  acción; `encode.progressBar` añade una barra que crece; `encode.grade` una sutil viñeta/LUT. Ejemplo
+  `examples/social.yml`.
 
 ```yaml
 encode:
   captionsMp4: out/demo-cc.mp4
-  captionsOpts: { style: { outlineColor: '#101010', outline: 2, fadeIn: 200, fadeOut: 200 } }
+  captionsOpts: { karaoke: true, style: { fillColor: '#6C5CE7' } }   # karaoke palabra a palabra
   narrateMp4: out/demo.mp4
   ttsOpts:
     voice: es-ES-ElviraNeural
     music: { track: ambient-gold, full: 0.85, duck: 0.16, lead: 1.2, gapRaise: 3.0 }  # pista incluida (alias)
-  intro: { engine: ffmpeg, title: 'Mi Web App', logo: assets/logo.png, result: out/demo-intro.mp4 }
+  intro: { engine: html, template: mesh, typewriter: true, title: 'Mi Web App', matchCut: true, sting: chime, result: out/demo-final.mp4 }
+  outro: { engine: html, title: 'Pruébalo', cta: 'Empieza ya', url: 'github.com/me/app' }
+  lowerThirds: { hold: 3.0 }
+  watermark: { text: 'Mi Marca', pos: br }
+  sfx: { gain: 0.8 }              # SFX incluidos (click/whoosh/key/chime); sobrescríbelos con los tuyos
+  transitions: { at: [nav, chapter], transition: zoomin }
+  progressBar: { color: '#6C5CE7', height: 6 }
+  grade: { vignette: true, saturation: 1.08 }
+  reframe: { ratios: ['9:16'], follow: true }     # smart-crop que sigue la acción
+  rampsMp4: out/demo-ramps.mp4                     # salida aparte (re-temporizada, sin subs/voz en sync)
+  ramps: { base: 1.5, slowmo: 0.5, at: [click, zoom] }
 ```
 
 ---

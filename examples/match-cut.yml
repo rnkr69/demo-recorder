@@ -1,0 +1,42 @@
+# Match-cut intro→demo: la intro (plantilla animada) hace push-in y se UNE a la demo con un fundido
+# zoom (xfade) en vez de un corte duro, así no se nota "pegada". También vale para demo→outro.
+#
+#   node examples/mock-server.mjs
+#   node src/run.js examples/match-cut.yml
+#
+# Salida: out/match-demo-final.mp4 (intro ⟿ demo con transición).
+
+url: http://127.0.0.1:4317/
+width: 1280
+height: 800
+scale: 2
+headless: true
+out: out
+
+encode:
+  mp4: out/match-demo.mp4
+
+  intro:
+    engine: html
+    template: mesh          # minimal | bold | terminal | mesh
+    typewriter: true        # título tecleado carácter a carácter
+    title: 'Acme Analytics'
+    subtitle: 'datos en lenguaje natural'
+    accent: '#6C5CE7'
+    duration: 2.6
+    matchCut: true          # une intro→demo con xfade en vez de corte
+    result: out/match-demo-final.mp4
+
+  # transition: { duration: 0.5, transition: fade }   # global: aplica xfade a TODAS las uniones
+  #                                                     (fade | dissolve | fadeblack | wipeleft | …)
+
+steps:
+  - hold: 700
+  - type: { sel: 'demo-chat >>> textarea', text: 'Muéstrame las ventas por región.', cps: 42 }
+  - click: 'demo-chat >>> button.send'
+  - waitFor: 'demo-chat table'
+  - hold: 600
+  - zoomFit: { sel: 'demo-chat >>> table' }
+  - hold: 2000
+  - resetZoom: true
+  - hold: 500

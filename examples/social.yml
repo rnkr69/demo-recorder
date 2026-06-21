@@ -1,0 +1,41 @@
+# Export para redes: corte 9:16 que SIGUE la acción (smart-crop usando los rects de zoom/click),
+# + barra de progreso abajo + color grade sutil (viñeta). Un solo run, listo para vertical.
+#
+#   node examples/mock-server.mjs
+#   node src/run.js examples/social.yml
+#
+# Salidas: out/social-demo.mp4 (16:9 con barra + grade) y out/social-demo-9x16.mp4 (vertical).
+
+url: http://127.0.0.1:4317/
+width: 1280
+height: 800
+scale: 2
+headless: true
+out: out
+
+encode:
+  mp4: out/social-demo.mp4
+
+  progressBar: { color: '#6C5CE7', height: 6, pos: bottom }
+  grade: { vignette: true, saturation: 1.08, contrast: 1.04 }   # + lut: my.cube (opcional)
+
+  reframe:
+    ratios: ['9:16']
+    follow: true          # sigue la acción; sin follow = padding borroso (ver examples/sfx.yml)
+
+steps:
+  - hold: 500
+  - type: { sel: 'demo-chat >>> textarea', text: 'Muéstrame las ventas por región.', cps: 42 }
+  - click: 'demo-chat >>> button.send'
+  - waitFor: 'demo-chat table'
+  - hold: 600
+  - zoomFit: { sel: 'demo-chat >>> table' }
+  - hold: 1800
+  - resetZoom: true
+  - click: { sel: 'nav a[href="/dashboard"]', nav: true }
+  - waitFor: '#chart'
+  - hold: 600
+  - zoomFit: { sel: '#chart', fill: 0.9 }
+  - hold: 1800
+  - resetZoom: true
+  - hold: 400

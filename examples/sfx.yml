@@ -1,0 +1,61 @@
+# SFX sincronizados a los beats (clicks, zooms, teclas) + música de fondo con ducking. Los efectos
+# se colocan en los timestamps del sidecar <video>.events.json que escribe la grabación, y se mezclan
+# ENCIMA de la música ya duckeada. Reframe extra a 9:16 y 1:1 para redes.
+#
+#   node examples/mock-server.mjs
+#   node src/run.js examples/sfx.yml
+#
+# IMPORTANTE: los SFX son opcionales. Pon ficheros cortos en audio/sfx/ (click/whoosh/key/chime),
+# o apunta sfx.dir a tu carpeta; si un efecto no se resuelve, se omite (ver audio/sfx/README.md).
+# Salidas: out/sfx-demo.mp4 (música+SFX) y out/sfx-demo-9x16.mp4 / -1x1.mp4.
+
+url: http://127.0.0.1:4317/
+width: 1280
+height: 800
+scale: 2
+headless: true
+out: out
+
+encode:
+  narrateMp4: out/sfx-demo.mp4       # base de audio (voz); música y SFX se tienden encima
+  ttsOpts:
+    voice: es-ES-ElviraNeural
+    music:
+      track: ambient-gold
+      full: 0.85
+      duck: 0.16
+
+  sfx:
+    gain: 0.8            # ganancia global de los efectos
+    # dir: assets/sfx   # opcional: tu propia carpeta de SFX
+    map:
+      # Sobrescribe el mapa kind→efecto. null silencia un kind.
+      click: click
+      zoom: { name: whoosh, gain: 0.5 }
+      keycap: key
+
+  reframe: ['9:16', '1:1']           # cortes verticales/cuadrados con padding borroso
+
+steps:
+  - caption: 'Pregunta a tus datos en lenguaje natural'
+  - hold: 700
+  - keycap: 'cmd+k'
+  - type: { sel: 'demo-chat >>> textarea', text: 'Muéstrame las ventas por región.', cps: 40 }
+  - click: 'demo-chat >>> button.send'
+
+  - caption: 'La respuesta llega al instante'
+  - waitFor: 'demo-chat table'
+  - hold: 500
+  - zoomFit: { sel: 'demo-chat >>> table', spotlight: true }
+  - hold: 2200
+  - resetZoom: true
+
+  - caption: 'Y el dashboard se actualiza en vivo'
+  - click: { sel: 'nav a[href="/dashboard"]', nav: true }
+  - waitFor: '#chart'
+  - hold: 600
+  - zoomFit: { sel: '#chart', fill: 0.9 }
+  - hold: 2000
+  - resetZoom: true
+  - caption: ''
+  - hold: 500

@@ -1,0 +1,50 @@
+# Lower-thirds / títulos de capítulo (tira animada que nombra la sección) + watermark de esquina.
+# Los `chapter:` emiten eventos al timeline; el encode los quema como lower-thirds sobre el vídeo
+# compuesto (libass). El watermark va en la esquina, sobre todo el vídeo final.
+#
+#   node examples/mock-server.mjs
+#   node src/run.js examples/chapters.yml
+#
+# Salida: out/chapters-demo.mp4 (con lower-thirds + watermark).
+
+url: http://127.0.0.1:4317/
+width: 1280
+height: 800
+scale: 2
+headless: true
+out: out
+
+encode:
+  mp4: out/chapters-demo.mp4
+
+  lowerThirds:
+    hold: 3.0            # s que se muestra la tira (0 = hasta el siguiente capítulo)
+    accent: '#6C5CE7'
+
+  watermark:
+    text: 'Acme Analytics'
+    pos: br              # br | bl | tr | tl
+    opacity: 0.5
+    # logo: assets/logo.png   # alternativa: PNG en vez de texto
+
+steps:
+  - chapter: '1. Pregunta en lenguaje natural'
+  - hold: 700
+  - type: { sel: 'demo-chat >>> textarea', text: 'Muéstrame las ventas por región.', cps: 42 }
+  - click: 'demo-chat >>> button.send'
+
+  - chapter: '2. Respuesta en streaming'
+  - waitFor: 'demo-chat table'
+  - hold: 600
+  - zoomFit: { sel: 'demo-chat >>> table' }
+  - hold: 2200
+  - resetZoom: true
+
+  - chapter: '3. Dashboard en vivo'
+  - click: { sel: 'nav a[href="/dashboard"]', nav: true }
+  - waitFor: '#chart'
+  - hold: 700
+  - zoomFit: { sel: '#chart', fill: 0.9 }
+  - hold: 2000
+  - resetZoom: true
+  - hold: 500

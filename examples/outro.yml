@@ -1,0 +1,58 @@
+# Bookends completos: INTRO (carta animada) + demo + OUTRO (end-card con CTA y URL del repo),
+# con UN solo lecho de música continuo que abarca intro+demo+outro. El outro usa el motor HTML
+# (assets/outro.html, fondo mesh animado en CSS); también admite engine: ffmpeg.
+#
+#   node examples/mock-server.mjs
+#   node src/run.js examples/outro.yml
+#
+# Salida: out/outro-demo-final.mp4 (intro + demo + outro + música).
+
+url: http://127.0.0.1:4317/
+width: 1280
+height: 800
+scale: 2
+headless: true
+out: out
+
+encode:
+  narrateMp4: out/outro-demo.mp4     # demo con voz (la música se tiende como capa final continua)
+  ttsOpts:
+    voice: es-ES-ElviraNeural
+    music:
+      track: ambient-gold
+      full: 0.85
+      duck: 0.16
+
+  intro:
+    engine: html                     # html | ffmpeg
+    title: 'Mi Web App'
+    subtitle: 'datos en lenguaje natural'
+    bg: '#0B0F1A'
+    duration: 2.6
+    # logo: assets/logo.png
+
+  outro:
+    engine: html
+    result: out/outro-demo-final.mp4 # nombre del mp4 final compuesto
+    title: '¿Lo probamos?'
+    subtitle: 'Gracias por ver la demo'
+    cta: 'Pruébalo gratis'
+    url: 'github.com/rnkr69/video-hero'
+    bg: '#0B0F1A'
+    duration: 3.0
+    # logo: assets/logo.png
+
+steps:
+  - caption: 'Pregunta a tus datos en lenguaje natural'
+  - hold: 700
+  - type: { sel: 'demo-chat >>> textarea', text: 'Muéstrame las ventas por región.', cps: 40 }
+  - click: 'demo-chat >>> button.send'
+
+  - caption: 'La respuesta llega al instante'
+  - waitFor: 'demo-chat table'
+  - hold: 500
+  - zoomFit: { sel: 'demo-chat >>> table', spotlight: true }
+  - hold: 2200
+  - resetZoom: true
+  - caption: ''
+  - hold: 500

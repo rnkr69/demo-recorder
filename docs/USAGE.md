@@ -126,6 +126,44 @@ steps:
 - In `waitFor` (it goes through Playwright) use **regular CSS**; Playwright pierces open
   shadow roots automatically. E.g.: `my-widget table`.
 
+### Effect steps (choreography)
+
+On top of the basics there are **in-page effect steps**, drawn live during the recording (so they
+show up in the contact-sheet — no encode needed). They use the same `>>>` selector syntax. The
+aesthetic rationale for each is in **[docs/AESTHETICS.md](AESTHETICS.md)**.
+
+```yaml
+steps:
+  # Attention mask (Screen-Studio spotlight): dim everything but the element.
+  - spotlight: { sel: '#chart', dim: 0.6 }       # standalone
+  - zoomFit:   { sel: '#chart', spotlight: true } # …or coupled to an auto-zoom
+  - spotlightOff: true                            # (resetZoom also clears it)
+
+  # On-screen keycaps (shortcuts): 'cmd+k' → ⌘ + K capsules.
+  - keycap: 'cmd+k'                               # alias: `key`
+
+  # Callouts / annotations anchored to an element (track it under zoom).
+  - annotate: { sel: '#send', shape: arrow, side: left, text: 'Click here', color: '#FFCC00' }
+  - annotate: { sel: '#row',  shape: box,    text: 'Result' }   # box | circle | arrow
+  - annotateOff: true                             # (resetZoom also clears callouts + highlights)
+
+  # Animated text highlight sweep (marker / underline).
+  - highlight: { sel: 'h1', mode: marker, color: 'rgba(255,214,0,.40)' }
+
+  # Smooth eased scroll (instead of a hard jump).
+  - scroll: { sel: '#section', ms: 700 }
+
+  # Click variants + attention pop + ripple ring.
+  - click: { sel: '#row', variant: double }       # single (default) | double | right
+  - click: { sel: '#kpi', ripple: true, pop: true }
+
+  # Cursor personality: a small bounce on arrival + a fading trail.
+  - move: { sel: '#cta', overshoot: true, trail: true }
+
+  # Name the current section → rendered as an animated lower-third at encode time.
+  - chapter: '1. Ask in natural language'
+```
+
 ---
 
 ## 4. Recording your real web app, step by step
@@ -266,9 +304,9 @@ Keys:
 - **Don't combine** subtitles/voice with `idleMp4`: the speedup changes the timeline and
   desyncs. Produce the video with voice/subtitles separately from the sped-up one.
 
-### Aesthetic enhancements (outlined subs, intro, music)
+### Aesthetic enhancements (subs, intro, music, SFX, reframe, outro…)
 
-Four extras are documented in detail in **[docs/AESTHETICS.md](AESTHETICS.md)**:
+All of these are documented in detail in **[docs/AESTHETICS.md](AESTHETICS.md)**:
 
 - **Choosing tracks** — the 4 combinations (video only / +audio / +subs / +both). For
   **audio without subs**, use `narrateMp4` without `captionsMp4` (example `examples/voice-only.yml`).
@@ -282,16 +320,47 @@ Four extras are documented in detail in **[docs/AESTHETICS.md](AESTHETICS.md)**:
 - **Background music with ducking** — `ttsOpts.music` lowers the music before the first TTS, raises
   it during long gaps and returns it at the end. **3 tracks included** (aliases `ambient-gold`,
   `sidewalk-chalk`, `she-said-i-wonder`; `demo-recorder tracks`) or your own audio. Example `examples/intro-music.yml`.
+- **Intro templates + match-cut** — `intro.template` (`minimal`/`bold`/`terminal`/`mesh`),
+  `intro.typewriter`, and `intro.matchCut` (or `encode.transition`) to dissolve/zoom intro→demo
+  instead of a hard cut. Example `examples/match-cut.yml`.
+- **Outro end-card** — `encode.outro` (mirror of the intro: animated card with CTA/URL/logo);
+  intro+demo+outro share one continuous music bed. Example `examples/outro.yml`.
+- **Step-synced SFX** — `encode.sfx` plays short sound effects on the recorded beats (clicks,
+  zooms, keycaps) from the `<video>.events.json` sidecar, mixed over the ducked audio. 4 SFX are
+  bundled (`click`/`whoosh`/`key`/`chime`); override with your own. Example `examples/sfx.yml`.
+- **Multi-format reframe** — `encode.reframe: ['9:16','1:1']` exports extra aspect ratios with
+  blurred padding (for social) from the same recording. Example `examples/sfx.yml`.
+- **Lower-thirds + watermark** — `encode.lowerThirds` turns `chapter:` steps into an animated
+  chapter strip; `encode.watermark` adds a corner bug (text or logo). Example `examples/chapters.yml`.
+- **Speed ramps** — `encode.rampsMp4` + `ramps` slow-mo the key beats (click/zoom) over a brisk
+  base speed (a separate video-only output, like `idleMp4`). Example `examples/ramps.yml`.
+- **Section transitions** — `encode.transitions` punctuates `nav`/`chapter` beats with a stylized
+  xfade (zoom-blur/whip) instead of a hard cut. Example `examples/transitions.yml`.
+- **Karaoke captions** — `captionsOpts.karaoke` fills the subtitles word-by-word in sync with the
+  TTS. Example `examples/karaoke.yml`.
+- **Smart-crop + progress bar + grade** — `encode.reframe.follow` makes the 9:16 cut follow the
+  action; `encode.progressBar` adds a growing bar; `encode.grade` a subtle vignette/LUT. Example
+  `examples/social.yml`.
 
 ```yaml
 encode:
   captionsMp4: out/demo-cc.mp4
-  captionsOpts: { style: { outlineColor: '#101010', outline: 2, fadeIn: 200, fadeOut: 200 } }
+  captionsOpts: { karaoke: true, style: { fillColor: '#6C5CE7' } }   # word-by-word karaoke
   narrateMp4: out/demo.mp4
   ttsOpts:
     voice: es-ES-ElviraNeural
     music: { track: ambient-gold, full: 0.85, duck: 0.16, lead: 1.2, gapRaise: 3.0 }  # included track (alias)
-  intro: { engine: ffmpeg, title: 'My Web App', logo: assets/logo.png, result: out/demo-intro.mp4 }
+  intro: { engine: html, template: mesh, typewriter: true, title: 'My Web App', matchCut: true, sting: chime, result: out/demo-final.mp4 }
+  outro: { engine: html, title: 'Try it', cta: 'Get started', url: 'github.com/me/app' }
+  lowerThirds: { hold: 3.0 }
+  watermark: { text: 'My Brand', pos: br }
+  sfx: { gain: 0.8 }              # bundled SFX (click/whoosh/key/chime); override with your own
+  transitions: { at: [nav, chapter], transition: zoomin }
+  progressBar: { color: '#6C5CE7', height: 6 }
+  grade: { vignette: true, saturation: 1.08 }
+  reframe: { ratios: ['9:16'], follow: true }     # smart-crop that follows the action
+  rampsMp4: out/demo-ramps.mp4                     # separate output (re-timed, no synced subs/voice)
+  ramps: { base: 1.5, slowmo: 0.5, at: [click, zoom] }
 ```
 
 ---

@@ -1,0 +1,52 @@
+# Efectos de capa in-page: spotlight (máscara de atención), keycaps (teclas en pantalla),
+# scroll con easing, variantes de click y overshoot/estela del cursor. Todo dibujado en vivo
+# por cursor-kit (no hace falta post-pro: se ve ya en la grabación / contact sheet).
+#
+#   node examples/mock-server.mjs
+#   node src/run.js examples/effects.yml          # grabar
+#   demo-recorder frames out/raw/<vid>.webm       # contact sheet para revisar
+#
+# Selector note: spotlight/scroll/click/move/type usan el kit `>>>`; waitFor usa Playwright.
+
+url: http://127.0.0.1:4317/
+width: 1280
+height: 800
+scale: 2
+headless: true
+out: out
+
+steps:
+  - hold: 600
+
+  # Teclas en pantalla + tecleo. El keycap es un overlay declarado (typeInto no emite teclas reales).
+  - keycap: 'cmd+k'
+  - hold: 200
+  - type: { sel: 'demo-chat >>> textarea', text: 'Muéstrame las ventas por región.', cps: 40 }
+  - keycap: 'enter'
+  - hold: 150
+  - click: 'demo-chat >>> button.send'
+
+  - waitFor: 'demo-chat table'
+  - hold: 400
+
+  # Spotlight: oscurece todo menos la tabla. Se combina con zoomFit (flag spotlight:true) para el
+  # efecto "Screen Studio" completo; aquí también se muestra el step suelto.
+  - zoomFit: { sel: 'demo-chat >>> table', spotlight: true }
+  - hold: 2200
+  - resetZoom: true        # resetZoom también apaga el spotlight
+  - hold: 400
+
+  # Variantes de click + pop de atención (micro-feedback) + estela/overshoot en el movimiento.
+  - move: { sel: 'nav a[href="/dashboard"]', ms: 600, trail: true, overshoot: true }
+  - click: { sel: 'nav a[href="/dashboard"]', nav: true }
+  - waitFor: '#chart'
+  - hold: 500
+
+  - spotlight: { sel: '#chart', dim: 0.55 }
+  - hold: 1400
+  - spotlightOff: true
+  - hold: 300
+
+  # Click con anillo (ripple) y pop del elemento.
+  - click: { sel: '#chart', ripple: true, pop: true, zoom: false }
+  - hold: 800
