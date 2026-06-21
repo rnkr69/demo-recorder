@@ -113,6 +113,26 @@ export async function speedupIdle(input, output, {
     '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '20', '-movflags', '+faststart', output]);
 }
 
+// Best-effort font FAMILY name from a font file path (libass matches Styles by family, not file):
+// strip the extension and any trailing weight/style word, so `Inter-Regular.ttf` and
+// `Inter-Bold.ttf` both resolve to `Inter`. Falls back to the bundled default.
+const familyOf = (file) => basename(String(file))
+  .replace(/\.(ttf|otf|ttc)$/i, '')
+  .replace(/[-_ ]?(thin|extralight|ultralight|light|regular|book|medium|semibold|demibold|bold|extrabold|ultrabold|black|heavy|italic|oblique)+$/i, '')
+  .trim() || defaultFontName();
+
+// Copy the fonts a libass overlay needs into `dir` so `fontsdir=.` finds them without relying on
+// OS-installed fonts (same trick burnSubs uses). Returns the copied paths (to clean up afterwards).
+function stageFonts(dir, extra = []) {
+  const copied = [];
+  for (const f of [regularFont(), boldFont(), ...extra.filter(Boolean)]) {
+    if (!existsSync(f)) continue;
+    const dest = join(dir, basename(f));
+    try { copyFileSync(f, dest); copied.push(dest); } catch { /* font copy is best-effort */ }
+  }
+  return copied;
+}
+
 // Extract several frames and tile them into ONE image for fast visual review.
 // This is the core of the Claude Code self-verification loop: one Read of the
 // contact sheet shows cursor / typing / zoom / timing across the whole clip.
@@ -126,29 +146,46 @@ export async function contactSheet(input, times, output, {
   const dir = dirname(output);
   const stem = basename(output).replace(/\.(png|jpg|jpeg)$/i, '');
   const pad = (i) => String(i).padStart(2, '0');
-  // The numbered tiles are throwaway intermediates — clear them once the grid is built so they
-  // don't pile up in out/ (this was the main source of clutter).
-  const rmTiles = () => { for (let i = 0; i < n; i++) { try { rmSync(resolve(join(dir, `${stem}-tile-${pad(i)}.png`)), { force: true }); } catch { /* ignore */ } } };
+  const tilePng = (i) => resolve(join(dir, `${stem}-tile-${pad(i)}.png`));
+  const tileAss = (i) => resolve(join(dir, `${stem}-tile-${pad(i)}.ass`));
   const inAbs = resolve(input);
-  // Stamp each frame with its timestamp via drawtext. Run ffmpeg with cwd=font dir so
-  // we pass only the font basename (sidesteps Windows drive-colon escaping). Disabled
-  // automatically if the font isn't found (keeps the sheet working everywhere).
+  // Stamp each frame with its timestamp. We render it with libass (the `ass` filter), NOT drawtext:
+  // the bundled Linux ffmpeg-static omits drawtext (see buildPosAss), while libass is present on
+  // every platform. Disabled automatically if the font isn't found (keeps the sheet working).
   const doLabel = label && existsSync(font);
-  // 1) extract each requested timestamp to a numbered, downscaled tile.
+  // Tiles are scaled to width=`scale`, height auto; derive the tile height from the source aspect so
+  // the label .ass PlayRes matches the tile pixels 1:1 (libass positions are in PlayRes units).
+  const size = doLabel ? await probeSize(inAbs).catch(() => ({ w: 1280, h: 800 })) : null;
+  const tileH = size ? Math.max(2, Math.round((scale * size.h) / size.w)) : 0;
+  const fam = doLabel ? familyOf(font) : null;
+  const stagedFonts = doLabel ? stageFonts(dir, [font]) : [];
+  // The numbered tiles (and the per-tile .ass + staged font copies) are throwaway intermediates —
+  // clear them once the grid is built so they don't pile up in out/ (the main source of clutter).
+  const rmTiles = () => {
+    for (let i = 0; i < n; i++) {
+      try { rmSync(tilePng(i), { force: true }); } catch { /* ignore */ }
+      try { rmSync(tileAss(i), { force: true }); } catch { /* ignore */ }
+    }
+    for (const f of stagedFonts) { try { rmSync(f, { force: true }); } catch { /* ignore */ } }
+  };
+  // 1) extract each requested timestamp to a numbered, downscaled (labelled) tile.
   for (let i = 0; i < n; i++) {
-    const tile = resolve(join(dir, `${stem}-tile-${pad(i)}.png`));
     let vf = `scale=${scale}:-1`;
     let opts = {};
     if (doLabel) {
-      vf += `,drawtext=fontfile=${basename(font)}:text='${times[i].toFixed(2)}s':` +
-        'x=12:y=12:fontsize=22:fontcolor=white:box=1:boxcolor=black@0.55:boxborderw=8';
-      opts = { cwd: dirname(font) };
+      writeFileSync(tileAss(i), buildPosAss(
+        [{ text: `${times[i].toFixed(2)}s`, x: 12, y: 12, an: 7, font: fam, fontSize: 22,
+          color: '#FFFFFF', box: true, boxColor: '#000000', boxAlpha: 0x73, boxPad: 8 }],
+        { width: scale, height: tileH, duration: 3600 }), 'utf8');
+      // cwd=dir so the filter references the .ass + fonts by basename (sidesteps drive-colon escaping).
+      vf += `,ass=${basename(tileAss(i))}:fontsdir=.`;
+      opts = { cwd: dir };
     }
-    await run(['-y', '-ss', String(times[i]), '-i', inAbs, '-frames:v', '1', '-vf', vf, tile], opts);
+    await run(['-y', '-ss', String(times[i]), '-i', inAbs, '-frames:v', '1', '-vf', vf, tilePng(i)], opts);
   }
   // A single frame needs no grid — just emit it.
   if (n === 1) {
-    copyFileSync(resolve(join(dir, `${stem}-tile-00.png`)), resolve(output));
+    copyFileSync(tilePng(0), resolve(output));
     rmTiles();
     return output;
   }
@@ -245,16 +282,11 @@ export function probeHasAudio(input) {
   });
 }
 
-// Escape inline drawtext text: backslash, the option separator ':' and ',', and swap raw
-// apostrophes for a typographic one (sidesteps filtergraph single-quote escaping entirely).
-const dtText = (t) => String(t)
-  .replace(/\\/g, '\\\\').replace(/:/g, '\\:').replace(/,/g, '\\,').replace(/'/g, '’');
-
 // Compose an intro card 100% with ffmpeg: solid background, optional centered logo, title and
-// subtitle (drawtext), fade-in/out and an optional subtle zoom push-in. Carries an audio track
-// (silent, or `music` faded out) so it concatenates cleanly with the demo. Built at WxH so it
-// matches the target video exactly.
-export function buildIntroFfmpeg(opts = {}) {
+// subtitle (rendered with libass — see buildPosAss), fade-in/out and an optional subtle zoom
+// push-in. Carries an audio track (silent, or `music` faded out) so it concatenates cleanly with
+// the demo. Built at WxH so it matches the target video exactly.
+export async function buildIntroFfmpeg(opts = {}) {
   const { out, logo, title = '', subtitle = '', bg = '#0B0F1A',
     animation = 'fade-zoom', music, width = 1280, height = 800, fps = 30,
     font, fontBold } = opts;
@@ -276,22 +308,32 @@ export function buildIntroFfmpeg(opts = {}) {
     parts.push(`${cur}[lg]overlay=(W-w)/2:${Math.round(H * 0.26)}[v1]`);
     cur = '[v1]';
   }
-  // Run with cwd=fonts dir and reference fonts by basename (sidesteps the Windows drive-colon
-  // that drawtext's ':'-separated options can't parse) — same trick as contactSheet. Defaults to
-  // the bundled Inter (cross-platform, no OS fonts needed); `font`/`fontBold` override (a path,
-  // bundled name, or alias). Both must live in the same directory (the cwd trick passes only the
-  // basename) — the bundled fonts do; a custom `font` reuses its own file for the bold title.
+  // Title + subtitle via libass. Defaults to the bundled Inter (cross-platform, no OS fonts needed);
+  // `font`/`fontBold` override (a path, bundled name, or alias) — the family name is derived from the
+  // file so the .ass Style resolves through `fontsdir`. The .ass + font copies live next to the
+  // output and ffmpeg runs with cwd there, so the filter only needs basenames (no drive-colon issue).
   const fontFileR = resolveFont(font);
   const fontFileB = resolveFont(fontBold || font, boldFont());
-  const fontDir = dirname(fontFileB);
+  const outAbs = resolve(out);
+  const workDir = dirname(outAbs);
+  let assFile = null;
+  let stagedFonts = [];
   const chain = [];
-  if (title) {
-    chain.push(`drawtext=fontfile=${basename(fontFileB)}:text=${dtText(title)}:fontcolor=white:` +
-      `fontsize=${Math.round(H * 0.075)}:x=(w-text_w)/2:y=${Math.round(H * 0.54)}`);
-  }
-  if (subtitle) {
-    chain.push(`drawtext=fontfile=${basename(fontFileR)}:text=${dtText(subtitle)}:fontcolor=white@0.82:` +
-      `fontsize=${Math.round(H * 0.036)}:x=(w-text_w)/2:y=${Math.round(H * 0.66)}`);
+  if (title || subtitle) {
+    assFile = join(workDir, `_intro-${basename(outAbs).replace(/\.\w+$/, '')}.ass`);
+    const lines = [];
+    if (title) {
+      lines.push({ text: title, x: W / 2, y: Math.round(H * 0.54), an: 8,
+        font: familyOf(fontFileB), fontSize: Math.round(H * 0.075), color: '#FFFFFF', bold: true });
+    }
+    if (subtitle) {
+      lines.push({ text: subtitle, x: W / 2, y: Math.round(H * 0.66), an: 8,
+        font: familyOf(fontFileR), fontSize: Math.round(H * 0.036),
+        color: '#FFFFFF', alpha: Math.round((1 - 0.82) * 255) });
+    }
+    writeFileSync(assFile, buildPosAss(lines, { width: W, height: H, duration: dur }), 'utf8');
+    stagedFonts = stageFonts(workDir, [fontFileR, fontFileB]);
+    chain.push(`ass=${basename(assFile)}:fontsdir=.`);
   }
   if (String(animation).includes('zoom')) {
     chain.push(`zoompan=z='min(pzoom+0.0006,1.06)':d=1:s=${W}x${H}:fps=${fps}`);
@@ -307,10 +349,16 @@ export function buildIntroFfmpeg(opts = {}) {
       `afade=t=out:st=${(dur - fo).toFixed(3)}:d=${fo.toFixed(3)}[aout]`);
     aLabel = '[aout]';
   }
-  return run(['-y', ...inputs, '-filter_complex', parts.join(';'),
-    '-map', '[vout]', '-map', aLabel, '-t', dur.toFixed(3),
-    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '20', '-movflags', '+faststart',
-    '-c:a', 'aac', '-b:a', '160k', '-ar', '48000', resolve(out)], { cwd: fontDir });
+  try {
+    await run(['-y', ...inputs, '-filter_complex', parts.join(';'),
+      '-map', '[vout]', '-map', aLabel, '-t', dur.toFixed(3),
+      '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '20', '-movflags', '+faststart',
+      '-c:a', 'aac', '-b:a', '160k', '-ar', '48000', outAbs], { cwd: workDir });
+  } finally {
+    // The .ass and staged font copies are build artifacts — only needed during the burn.
+    if (assFile) { try { rmSync(assFile, { force: true }); } catch { /* artifact */ } }
+    for (const f of stagedFonts) { try { rmSync(f, { force: true }); } catch { /* font copy */ } }
+  }
 }
 
 // Concatenate clips (intro + demo) by re-encoding through the concat filter — robust to the
@@ -474,6 +522,63 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     return `Dialogue: 0,${assTime(c.start)},${assTime(c.end)},Default,,0,0,0,,${tags}${text}`;
   });
   return head + lines.join('\n') + '\n';
+}
+
+// Draw absolutely-positioned, styled text onto a WxH canvas for the whole `duration` — a libass
+// replacement for the `drawtext` filter. drawtext is ABSENT from the bundled Linux ffmpeg-static
+// build: ffmpeg 7.0's drawtext gained a hard dependency on libharfbuzz, which the John Van Sickle
+// static build omits (it ships libfreetype + libass but not harfbuzz), so the filter is compiled
+// out. libass IS bundled on every platform, so the intro card and contact-sheet labels render the
+// same everywhere with the binary we ship. PlayRes is set to WxH, so x/y are in real video pixels.
+// Each line: { text, x, y, an=8, font, fontSize, color, alpha, bold, outline, outlineColor, shadow,
+//   box, boxColor, boxAlpha, boxPad, fade:[inMs,outMs] }. `an` is the libass numpad alignment of the
+// \pos anchor (8=top-center like drawtext's x=(w-tw)/2/y=top, 7=top-left, 5=middle).
+export function buildPosAss(lines, { width, height, duration }) {
+  const styles = [];
+  const events = [];
+  lines.forEach((ln, i) => {
+    const fam = ln.font || defaultFontName();
+    const fs = ln.fontSize || 32;
+    const primary = hexToAss(ln.color || '#FFFFFF', ln.alpha ?? 0);
+    const bold = ln.bold ? -1 : 0;
+    const an = ln.an ?? 8;
+    let borderStyle, outline, outlineCol, backCol, shadow;
+    if (ln.box) {
+      borderStyle = 3;                                              // opaque box behind the text
+      outline = ln.boxPad ?? 8;                                    // box padding around the glyphs
+      backCol = hexToAss(ln.boxColor || '#000000', ln.boxAlpha ?? 0x73);
+      outlineCol = backCol;
+      shadow = 0;
+    } else {
+      borderStyle = 1;                                             // plain outline + shadow
+      outline = ln.outline ?? 0;
+      outlineCol = hexToAss(ln.outlineColor || '#000000', 0);
+      backCol = hexToAss('#000000', 0x80);
+      shadow = ln.shadow ?? 0;
+    }
+    styles.push(`Style: L${i},${fam},${fs},${primary},&H000000FF,${outlineCol},${backCol},` +
+      `${bold},0,0,0,100,100,0,0,${borderStyle},${outline},${shadow},${an},0,0,0,1`);
+    const [fin = 0, fout = 0] = ln.fade || [];
+    const fad = (fin || fout) ? `\\fad(${Math.round(fin)},${Math.round(fout)})` : '';
+    const text = String(ln.text).replace(/\r?\n/g, '\\N');
+    events.push(`Dialogue: ${i},0:00:00.00,${assTime(duration)},L${i},,0,0,0,,` +
+      `{\\pos(${Math.round(ln.x)},${Math.round(ln.y)})${fad}}${text}`);
+  });
+  return `[Script Info]
+ScriptType: v4.00+
+PlayResX: ${Math.round(width)}
+PlayResY: ${Math.round(height)}
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+${styles.join('\n')}
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+${events.join('\n')}
+`;
 }
 
 // Write an .srt next to/alongside the video (reads `<input>.captions.json` if no
