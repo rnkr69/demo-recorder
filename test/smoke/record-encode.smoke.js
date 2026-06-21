@@ -184,3 +184,62 @@ test('phase 2: annotate/chapter events + lower-thirds + watermark + match-cut', 
   assert.ok(kinds.has('chapter') && kinds.has('annotate'), 'expected chapter + annotate events');
   assert.ok(statSync(finalMp4).size > 0, 'match-cut composed final should be non-empty');
 });
+
+test('phase 3: speed ramps + transitions + progress bar + grade + smart-crop 9:16', { timeout: 180000 }, async (t) => {
+  const skip = whySkip();
+  if (skip) { t.skip(skip); return; }
+
+  const out = mkdtempSync(join(tmpdir(), 'demorec-p3-'));
+  const server = spawn(process.execPath, [join(REPO, 'examples', 'mock-server.mjs')],
+    { stdio: 'ignore', env: { ...process.env, PORT: String(PORT) } });
+  t.after(() => {
+    try { server.kill(); } catch { /* ignore */ }
+    try { rmSync(out, { recursive: true, force: true }); } catch { /* ignore */ }
+  });
+  await waitForServer(`http://127.0.0.1:${PORT}/`);
+
+  const mp4 = join(out, 'p3.mp4');
+  const ramps = join(out, 'p3-ramps.mp4');
+  const specPath = join(out, 'p3.yml');
+  // Events (chapter/zoom/click) drive ramps, transitions and the smart-crop focus. No TTS/music.
+  writeFileSync(specPath, [
+    `url: http://127.0.0.1:${PORT}/`,
+    'width: 640',
+    'height: 400',
+    'headless: true',
+    `out: ${JSON.stringify(out)}`,
+    'steps:',
+    "  - chapter: '1. Uno'",
+    '  - zoomFit: { sel: demo-chat }',
+    '  - hold: 0.4',
+    '  - resetZoom: true',
+    'encode:',
+    `  mp4: ${JSON.stringify(mp4)}`,
+    `  rampsMp4: ${JSON.stringify(ramps)}`,
+    '  ramps: { base: 1.5, slowmo: 0.5, at: [zoom], window: 0.4 }',
+    '  transitions: { at: [chapter], transition: fade, duration: 0.3 }',
+    '  progressBar: { height: 5 }',
+    '  grade: { vignette: true }',
+    "  reframe: { ratios: ['9:16'], follow: true }",
+  ].join('\n'), 'utf8');
+
+  const { runScript } = await import('../../src/run.js');
+  await runScript(specPath, {});
+
+  // The events sidecar carries the rect on zoom (for smart-crop focus).
+  const rawDir = join(out, 'raw');
+  const webm = readdirSync(rawDir).filter((f) => f.endsWith('.webm') && existsSync(join(rawDir, `${f}.events.json`)))[0];
+  const events = JSON.parse(readFileSync(join(rawDir, `${webm}.events.json`), 'utf8')).events;
+  const zoom = events.find((e) => e.kind === 'zoom');
+  assert.ok(zoom && zoom.rect && typeof zoom.rect.cx === 'number', 'zoom event should carry a rect');
+
+  // Outputs exist; the ramps re-times (different duration) and the 9:16 is portrait.
+  const { probeDuration, probeSize } = await import('../../src/encode.js');
+  assert.ok(statSync(mp4).size > 0 && statSync(ramps).size > 0, 'mp4 + ramps should be non-empty');
+  const square = join(out, 'p3-9x16.mp4');
+  assert.ok(existsSync(square), 'expected a 9:16 reframe output');
+  const sz = await probeSize(square);
+  assert.ok(sz.h > sz.w, 'the 9:16 output should be portrait');
+  const [dMain, dRamps] = await Promise.all([probeDuration(mp4), probeDuration(ramps)]);
+  assert.ok(Math.abs(dMain - dRamps) > 0.05, 'ramps should change the duration');
+});

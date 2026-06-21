@@ -1,0 +1,38 @@
+# Transiciones entre secciones: como la grabación es continua, se aplica una transición ESTILIZADA
+# (zoom-blur/whip) en los beats de `nav`/`chapter` para puntuar el cambio de sección. Reusa xfade.
+#
+#   node examples/mock-server.mjs
+#   node src/run.js examples/transitions.yml
+#
+# Salida: out/transitions-demo.mp4 (cortes de sección con punch).
+
+url: http://127.0.0.1:4317/
+width: 1280
+height: 800
+scale: 2
+headless: true
+out: out
+
+encode:
+  mp4: out/transitions-demo.mp4
+  transitions:
+    at: [nav, chapter]   # beats donde insertar la transición
+    transition: zoomin   # cualquier xfade: zoomin | hblur | radial | wipeleft | dissolve | fade…
+    duration: 0.4        # s de la transición
+
+steps:
+  - chapter: '1. Pregunta'
+  - hold: 500
+  - type: { sel: 'demo-chat >>> textarea', text: 'Muéstrame las ventas por región.', cps: 42 }
+  - click: 'demo-chat >>> button.send'
+  - waitFor: 'demo-chat table'
+  - hold: 1600
+
+  - chapter: '2. Dashboard'
+  - click: { sel: 'nav a[href="/dashboard"]', nav: true }
+  - waitFor: '#chart'
+  - hold: 600
+  - zoomFit: { sel: '#chart', fill: 0.9 }
+  - hold: 1600
+  - resetZoom: true
+  - hold: 400

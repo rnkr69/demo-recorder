@@ -17,6 +17,8 @@ import {
   toMp4, toGif, speedupIdle, writeSrt, burnSubs,
   buildIntroFfmpeg, concatVideos, probeSize, probeDuration, addMusicBed, toMp4Silent,
   reframe, mapSfx, muxSfx, burnWatermark, burnLowerThirds, xfadeJoin,
+  applySpeedSegments, buildSpeedPlan, transitionAtCuts, addProgressBar, colorGrade,
+  burnKaraoke, smartReframe,
 } from './encode.js';
 import { narrateVideo, getNarration, musicEnvelope } from './tts.js';
 import { rawDir, workDir, ensureDir, pruneRaw, wipeWork } from './layout.js';
@@ -197,11 +199,21 @@ async function applyEncode(spec, video) {
   const e = spec.encode;
   if (!e) return;
   // Make sure every configured output's parent dir exists (e.g. out/work/ for intermediates).
-  [e.srt, e.captionsMp4, e.narrateMp4, e.idleMp4, e.mp4, e.gif, e.intro?.result, e.intro?.out,
+  [e.srt, e.captionsMp4, e.narrateMp4, e.idleMp4, e.rampsMp4, e.mp4, e.gif, e.intro?.result, e.intro?.out,
     e.outro?.result, e.outro?.out, e.music?.out, e.sfx?.out]
     .forEach((p) => { if (p) ensureDir(dirname(resolve(p))); });
   if (e.srt) { await writeSrt(video, e.srt); console.log('SRT:', e.srt); }
-  if (e.captionsMp4) { await burnSubs(video, e.captionsMp4, e.captionsOpts || {}); console.log('CAPTIONS MP4:', e.captionsMp4); }
+  if (e.captionsMp4) {
+    const co = e.captionsOpts || {};
+    if (co.karaoke) {
+      // Word-by-word karaoke needs the TTS word timings → pull narration (cached) and burn \kf.
+      const narration = await getNarration(video, { ...(e.ttsOpts || {}), captionsFrom: video });
+      await burnKaraoke(video, e.captionsMp4, { narration, style: co.style });
+    } else {
+      await burnSubs(video, e.captionsMp4, co);
+    }
+    console.log('CAPTIONS MP4:', e.captionsMp4);
+  }
   // `music: true` (or any truthy non-object) → bundled default track with default ducking.
   let music = e.music || (e.ttsOpts || {}).music;
   if (music && typeof music !== 'object') music = {};
@@ -215,6 +227,15 @@ async function applyEncode(spec, video) {
     console.log('NARRATE MP4:', e.narrateMp4);
   }
   if (e.idleMp4) { await speedupIdle(video, e.idleMp4, e.idleOpts || {}); console.log('IDLE MP4:', e.idleMp4); }
+  if (e.rampsMp4) {
+    // Deliberate speed ramps (slow-mo on key beats, brisk elsewhere) from the events sidecar.
+    // Video-only, separate output (re-timing desyncs burned subs/voice — like idleMp4).
+    let events = [];
+    try { events = JSON.parse(readFileSync(`${video}.events.json`, 'utf8')).events; } catch { /* none */ }
+    const dur = await probeDuration(video);
+    await applySpeedSegments(video, e.rampsMp4, buildSpeedPlan(events, dur, e.ramps || {}), {});
+    console.log('RAMPS MP4:', e.rampsMp4);
+  }
   if (e.mp4) { await toMp4(video, e.mp4, e.mp4opts || {}); console.log('MP4:', e.mp4); }
   if (e.gif) { await toGif(video, e.gif, e.gifopts || {}); console.log('GIF:', e.gif); }
 
@@ -270,14 +291,19 @@ async function applyEncode(spec, video) {
       if (!left.sfx) console.log(bookend ? 'COMPOSED+MUSIC:' : 'MUSIC:', result);
     }
 
-    // Step-synced SFX, mixed on top of the (ducked) audio. Events are offset by the intro length.
-    if (e.sfx) {
+    // Step-synced SFX (+ optional intro sting), mixed on top of the (ducked) audio. Offset by intro.
+    if (e.sfx || (e.intro && e.intro.sting)) {
       const so = (typeof e.sfx === 'object') ? e.sfx : {};
       let events = [];
       try { events = JSON.parse(readFileSync(`${video}.events.json`, 'utf8')).events; } catch { /* no events sidecar */ }
-      const cues = mapSfx(events, { ...so, offset: introDur + (so.offset || 0) })
+      const cues = (e.sfx ? mapSfx(events, { ...so, offset: introDur + (so.offset || 0) }) : [])
         .map((c) => ({ ...c, path: resolveSfx(so.dir ? join(resolve(so.dir), c.name) : c.name) }))
         .filter((c) => c.path);
+      // Intro sting: a one-shot at t=0 of the composed timeline.
+      if (e.intro && e.intro.sting) {
+        const p = resolveSfx(e.intro.sting);
+        if (p) cues.unshift({ name: e.intro.sting, delay: 0, gain: e.intro.stingGain ?? 1, kind: 'sting', path: p });
+      }
       if (cues.length) {
         const tmp = tmpIn(result, 'sfx');
         await muxSfx(target, tmp, cues);
@@ -286,19 +312,33 @@ async function applyEncode(spec, video) {
         console.log('SFX:', result, `(${cues.length} efectos)`);
       } else {
         if (resolve(target) !== result) renameSync(target, result);
-        console.log('SFX: sin efectos resueltos (añade audio/sfx/ o usa sfx.map). Salida:', result);
+        if (e.sfx) console.log('SFX: sin efectos resueltos (añade audio/sfx/ o usa sfx.map). Salida:', result);
       }
     }
 
     e._composed = result;
   }
 
-  // ---- Lower-thirds (chapter titles) + corner watermark, burned onto the composed final so they
-  //      span intro+demo+outro and any reframe inherits them. Chapter times shift by the intro. ----
+  // ---- Whole-clip passes on the composed final (so they span intro+demo+outro and any reframe
+  //      inherits them): section transitions, lower-thirds, watermark, progress bar, colour grade. ----
   let finalVideo = e._composed || e.narrateMp4 || e.captionsMp4 || e.idleMp4 || e.mp4;
   finalVideo = finalVideo ? resolve(finalVideo) : null;
-  if ((e.lowerThirds || e.watermark) && finalVideo) {
+  if ((e.transitions || e.lowerThirds || e.watermark || e.progressBar || e.grade) && finalVideo) {
     const tmpIn = (p, tag) => join(ensureDir(workDir(spec.out)), basename(p).replace(/\.(\w+)$/, `.${tag}.$1`));
+    // Stylized transitions at section beats (nav/chapter). Re-times slightly; do it before overlays.
+    if (e.transitions) {
+      const tr = (typeof e.transitions === 'object') ? e.transitions : {};
+      const atKinds = tr.at || ['nav', 'chapter'];
+      let evs = [];
+      try { evs = JSON.parse(readFileSync(`${video}.events.json`, 'utf8')).events; } catch { /* none */ }
+      const cuts = (evs || []).filter((x) => atKinds.includes(x.kind)).map((x) => x.t + introDur);
+      if (cuts.length) {
+        const tmp = tmpIn(finalVideo, 'tr');
+        await transitionAtCuts(finalVideo, tmp, cuts, { transition: tr.transition || 'fade', duration: tr.duration || 0.4 });
+        renameSync(tmp, finalVideo);
+        console.log('TRANSITIONS:', finalVideo, `(${cuts.length})`);
+      }
+    }
     if (e.lowerThirds) {
       const lt = (typeof e.lowerThirds === 'object') ? e.lowerThirds : {};
       let evs = [];
@@ -318,6 +358,19 @@ async function applyEncode(spec, video) {
       renameSync(tmp, finalVideo);
       console.log('WATERMARK:', finalVideo);
     }
+    if (e.grade) {
+      const tmp = tmpIn(finalVideo, 'grade');
+      await colorGrade(finalVideo, tmp, (typeof e.grade === 'object') ? e.grade : {});
+      renameSync(tmp, finalVideo);
+      console.log('GRADE:', finalVideo);
+    }
+    // Progress bar last: a UI overlay that should sit on top of the grade/vignette.
+    if (e.progressBar) {
+      const tmp = tmpIn(finalVideo, 'pb');
+      await addProgressBar(finalVideo, tmp, (typeof e.progressBar === 'object') ? e.progressBar : {});
+      renameSync(tmp, finalVideo);
+      console.log('PROGRESS BAR:', finalVideo);
+    }
     e._composed = finalVideo;
   }
 
@@ -327,11 +380,21 @@ async function applyEncode(spec, video) {
     const ratios = Array.isArray(e.reframe) ? e.reframe
       : (typeof e.reframe === 'string' ? [e.reframe] : (cfg.ratios || []));
     const srcRef = resolve(e._composed || e.narrateMp4 || e.captionsMp4 || e.idleMp4 || e.mp4 || video);
+    // Smart-crop (follow the action): build a focus timeline from rect-tagged events, shifted by the
+    // intro length to match the composed timeline.
+    let focus = [];
+    if (cfg.follow) {
+      let evs = [];
+      try { evs = JSON.parse(readFileSync(`${video}.events.json`, 'utf8')).events; } catch { /* none */ }
+      focus = (evs || []).filter((x) => x.rect && ['zoom', 'click', 'spotlight'].includes(x.kind))
+        .map((x) => ({ t: x.t + introDur, cx: x.rect.cx }));
+    }
     for (const ratio of ratios) {
       const tag = String(ratio).replace(/[:/x]/g, 'x');
       const out = resolve((cfg.out && cfg.out[ratio]) || srcRef.replace(/\.(\w+)$/, `-${tag}.$1`));
       ensureDir(dirname(out));
-      await reframe(srcRef, out, ratio, cfg.opts || {});
+      if (cfg.follow) await smartReframe(srcRef, out, ratio, { focus, ...(cfg.opts || {}) });
+      else await reframe(srcRef, out, ratio, cfg.opts || {});
       console.log('REFRAME', ratio + ':', out);
     }
   }

@@ -67,23 +67,14 @@ export function frameAt(input, t, output) {
 // take `opts.idle`), build a piecewise setpts (split → trim → setpts → concat) and
 // re-encode. Each idle span is sped by `speed` but never shrunk below `floor` seconds
 // (so a held zoom stays readable), and spans shorter than `minIdle` are left untouched.
-export async function speedupIdle(input, output, {
-  idle, speed = 4, minIdle = 0.7, floor = 0.5, fps = 30,
-} = {}) {
-  let ranges = idle;
-  if (!ranges) {
-    try { ranges = JSON.parse(readFileSync(`${input}.idle.json`, 'utf8')).idle; }
-    catch { ranges = []; }
-  }
-  const dur = await probeDuration(input);
-
-  // Normalize: clip to [0,dur], keep only spans worth speeding, sort, drop overlaps.
+// Pure: idle ranges → speed segments [{a,b,speed}] (active 1x interleaved with sped idle spans).
+// Each idle span is sped by `speed` but never shorter than `floor` seconds; spans < `minIdle` are
+// left at 1x. Tiny fragments (<0.02s) are dropped.
+export function idleSegments(ranges, dur, { speed = 4, minIdle = 0.7, floor = 0.5 } = {}) {
   const idleSpans = (ranges || [])
     .map(([a, b]) => [Math.max(0, a), Math.min(dur, b)])
     .filter(([a, b]) => b - a >= minIdle)
     .sort((p, q) => p[0] - q[0]);
-
-  // Walk the timeline, alternating active (1x) and idle (sped) segments.
   const segs = [];
   let cur = 0;
   for (const [a, b] of idleSpans) {
@@ -94,23 +85,67 @@ export async function speedupIdle(input, output, {
     cur = b;
   }
   if (cur < dur) segs.push({ a: cur, b: dur, speed: 1 });
-  const parts = segs.filter((g) => g.b - g.a > 0.02);
+  return segs.filter((g) => g.b - g.a > 0.02);
+}
 
-  // No idle worth compressing → just transcode straight through.
-  if (parts.length <= 1) {
+// Re-time a video from piecewise speed segments [{a,b,speed}] (split → trim → setpts → concat).
+// Video-only (changing PTS desyncs burned subs/voice — produce these as a separate output).
+export async function applySpeedSegments(input, output, parts, { fps = 30 } = {}) {
+  const clean = (parts || []).filter((g) => g.b - g.a > 0.02);
+  // Nothing to re-time → straight transcode.
+  if (clean.length <= 1) {
     return run(['-y', '-i', input, '-r', String(fps),
       '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '20', '-movflags', '+faststart', output]);
   }
-
-  const n = parts.length;
-  const splitOuts = parts.map((_, i) => `[s${i}]`).join('');
-  const chains = parts.map((g, i) =>
+  const n = clean.length;
+  const splitOuts = clean.map((_, i) => `[s${i}]`).join('');
+  const chains = clean.map((g, i) =>
     `[s${i}]trim=start=${g.a.toFixed(3)}:end=${g.b.toFixed(3)},setpts=(PTS-STARTPTS)/${g.speed.toFixed(4)}[v${i}]`);
-  const concat = parts.map((_, i) => `[v${i}]`).join('') + `concat=n=${n}:v=1:a=0[out]`;
+  const concat = clean.map((_, i) => `[v${i}]`).join('') + `concat=n=${n}:v=1:a=0[out]`;
   const filter = `[0:v]split=${n}${splitOuts};${chains.join(';')};${concat}`;
-
   return run(['-y', '-i', input, '-filter_complex', filter, '-map', '[out]', '-r', String(fps),
     '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '20', '-movflags', '+faststart', output]);
+}
+
+// Idle-speedup: compress the scripted holds. Reads idle spans from `<video>.idle.json` (or
+// `opts.idle`) and re-times via applySpeedSegments.
+export async function speedupIdle(input, output, {
+  idle, speed = 4, minIdle = 0.7, floor = 0.5, fps = 30,
+} = {}) {
+  let ranges = idle;
+  if (!ranges) {
+    try { ranges = JSON.parse(readFileSync(`${input}.idle.json`, 'utf8')).idle; }
+    catch { ranges = []; }
+  }
+  const dur = await probeDuration(input);
+  return applySpeedSegments(input, output, idleSegments(ranges, dur, { speed, minIdle, floor }), { fps });
+}
+
+// Pure: deliberate speed ramps from recorder events. A `base` speed everywhere (e.g. 1.4 = brisk),
+// with slow-mo windows of `slowmo` speed centered on chosen beats (`at` kinds, ± `window` seconds).
+// Returns merged speed segments [{a,b,speed}] covering [0,dur].
+export function buildSpeedPlan(events, dur, { base = 1.4, slowmo = 0.5, at = ['click'], window = 0.6 } = {}) {
+  const kinds = new Set(at);
+  // Slow windows around matching beats, clipped and merged.
+  const wins = (events || []).filter((e) => kinds.has(e.kind))
+    .map((e) => [Math.max(0, e.t - window), Math.min(dur, e.t + window)])
+    .sort((p, q) => p[0] - q[0]);
+  const merged = [];
+  for (const w of wins) {
+    const last = merged[merged.length - 1];
+    if (last && w[0] <= last[1]) last[1] = Math.max(last[1], w[1]);
+    else merged.push([...w]);
+  }
+  // Walk the timeline: base speed outside windows, slowmo inside.
+  const segs = [];
+  let cur = 0;
+  for (const [a, b] of merged) {
+    if (a > cur) segs.push({ a: cur, b: a, speed: base });
+    segs.push({ a: Math.max(cur, a), b, speed: slowmo });
+    cur = b;
+  }
+  if (cur < dur) segs.push({ a: cur, b: dur, speed: base });
+  return segs.filter((g) => g.b - g.a > 0.02);
 }
 
 // Best-effort font FAMILY name from a font file path (libass matches Styles by family, not file):
@@ -656,6 +691,195 @@ export async function xfadeJoin(parts, output, { duration = 0.5, transition = 'f
   const filter = [...norm, ...vchain].join(';');
   return run(['-y', ...inputs, '-filter_complex', filter, '-map', '[v]', '-r', String(fps),
     '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '20', '-movflags', '+faststart', output]);
+}
+
+// ---- Transitions between beats (intra-clip xfade at cut points) -----------
+
+// Apply a stylized transition (xfade) at each cut time WITHIN one clip — punctuates section changes
+// (nav/chapter beats). Splits at `cuts`, crossfades video and (when present) audio. Slightly
+// shortens the clip by (n-1)*duration. `transition` is any ffmpeg xfade name (zoomin/hblur/radial/
+// wipeleft/fade…). Assumes a non-empty `cuts`.
+export async function transitionAtCuts(input, output, cuts, { transition = 'fade', duration = 0.4, fps = 30 } = {}) {
+  const dur = await probeDuration(input);
+  const pts = [...new Set((cuts || []).map((t) => +(+t).toFixed(3)))]
+    .filter((t) => t > duration && t < dur - duration).sort((a, b) => a - b);
+  if (!pts.length) throw new Error('transitionAtCuts: no usable cut points');
+  const bounds = [0, ...pts, dur];
+  const segDurs = bounds.slice(1).map((b, i) => b - bounds[i]);
+  const n = segDurs.length;
+  const offs = xfadeOffsets(segDurs, duration);
+  const hasA = await probeHasAudio(input);
+  const parts = [`[0:v]split=${n}${segDurs.map((_, i) => `[s${i}]`).join('')}`];
+  segDurs.forEach((_, i) => parts.push(
+    `[s${i}]trim=start=${bounds[i].toFixed(3)}:end=${bounds[i + 1].toFixed(3)},setpts=PTS-STARTPTS,fps=${fps},format=yuv420p[v${i}]`));
+  let vp = '[v0]';
+  for (let i = 1; i < n; i++) {
+    const out = i === n - 1 ? '[v]' : `[vx${i}]`;
+    parts.push(`${vp}[v${i}]xfade=transition=${transition}:duration=${duration}:offset=${offs[i - 1]}${out}`);
+    vp = out;
+  }
+  let map = ['-map', '[v]']; let aargs = [];
+  if (hasA) {
+    parts.push(`[0:a]asplit=${n}${segDurs.map((_, i) => `[as${i}]`).join('')}`);
+    segDurs.forEach((_, i) => parts.push(
+      `[as${i}]atrim=start=${bounds[i].toFixed(3)}:end=${bounds[i + 1].toFixed(3)},asetpts=PTS-STARTPTS[a${i}]`));
+    let ap = '[a0]';
+    for (let i = 1; i < n; i++) {
+      const out = i === n - 1 ? '[a]' : `[ax${i}]`;
+      parts.push(`${ap}[a${i}]acrossfade=d=${duration}:c1=tri:c2=tri${out}`);
+      ap = out;
+    }
+    map = ['-map', '[v]', '-map', '[a]']; aargs = ['-c:a', 'aac', '-b:a', '160k'];
+  }
+  return run(['-y', '-i', input, '-filter_complex', parts.join(';'), ...map, '-r', String(fps),
+    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '20', '-movflags', '+faststart', ...aargs, output]);
+}
+
+// ---- Progress bar + colour grade (whole-clip overlays) --------------------
+
+// A thin progress bar that grows left→right over the clip (drawbox with a per-frame width
+// expression). pos: bottom | top.
+export async function addProgressBar(input, output, { color = '#6C5CE7', height = 6, pos = 'bottom', opacity = 0.9, fps = 30 } = {}) {
+  const dur = await probeDuration(input);
+  const hasA = await probeHasAudio(input);
+  const y = pos === 'top' ? '0' : `ih-${height}`;
+  const col = String(color).replace('#', '0x');
+  const vf = `drawbox=x=0:y=${y}:w='iw*min(t/${dur.toFixed(3)}\\,1)':h=${height}:color=${col}@${opacity}:t=fill`;
+  const aargs = hasA ? ['-c:a', 'copy'] : [];
+  return run(['-y', '-i', input, '-vf', vf, '-r', String(fps),
+    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '20', '-movflags', '+faststart', ...aargs, output]);
+}
+
+// A subtle colour grade for consistency across demos: optional 3D LUT (.cube), eq tweaks and a
+// vignette. All parts optional; keeps the source audio.
+export async function colorGrade(input, output, { vignette = true, contrast = 1.0, saturation = 1.0, brightness = 0, lut, fps = 30 } = {}) {
+  const inAbs = resolve(input), outAbs = resolve(output);
+  const hasA = await probeHasAudio(inAbs);
+  const chain = [];
+  let cwd;
+  if (lut) { const lAbs = resolve(lut); cwd = dirname(lAbs); chain.push(`lut3d=${basename(lAbs)}`); }
+  if (contrast !== 1 || saturation !== 1 || brightness !== 0) {
+    chain.push(`eq=contrast=${contrast}:saturation=${saturation}:brightness=${brightness}`);
+  }
+  if (vignette) chain.push('vignette=PI/5');
+  if (!chain.length) chain.push('null');
+  const aargs = hasA ? ['-c:a', 'copy'] : [];
+  return run(['-y', '-i', inAbs, '-vf', chain.join(','), '-r', String(fps),
+    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '20', '-movflags', '+faststart', ...aargs, outAbs],
+  cwd ? { cwd } : {});
+}
+
+// ---- Karaoke captions (word-by-word) --------------------------------------
+
+// Pure: build an .ass with per-word karaoke fill (\kf). narration: [{t,text,duration}] (the TTS
+// timings from getNarration). Each caption is one Dialogue spanning [t, t+duration]; words get a
+// \kf of their share of the duration (weighted by length). PrimaryColour = the "sung" fill,
+// SecondaryColour = the upcoming word colour.
+export function buildKaraokeAss(narration, size = {}, style = {}) {
+  const s = {
+    font: defaultFontName(), fontSize: 26, color: '#FFFFFF', fillColor: '#6C5CE7',
+    outlineColor: '#101010', outline: 2, shadow: 0.5, bold: true,
+    alignment: 2, marginV: 56, marginL: 64, marginR: 64, playResY: 800, ...style,
+  };
+  const refH = s.playResY;
+  const refW = Math.round(((size.w || 1280) / (size.h || 800)) * refH);
+  const primary = hexToAss(s.fillColor, 0);     // sung
+  const secondary = hexToAss(s.color, 0);        // not yet sung
+  const outlineCol = hexToAss(s.outlineColor, 0);
+  const head =
+`[Script Info]
+ScriptType: v4.00+
+PlayResX: ${refW}
+PlayResY: ${refH}
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: K,${s.font},${s.fontSize},${primary},${secondary},${outlineCol},&H80000000,${s.bold ? -1 : 0},0,0,0,100,100,0,0,1,${s.outline},${s.shadow},${s.alignment},${s.marginL},${s.marginR},${s.marginV},1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+`;
+  const lines = (narration || []).filter((c) => c.text && c.duration > 0).map((c) => {
+    const words = String(c.text).split(/\s+/).filter(Boolean);
+    const totalCs = Math.max(1, Math.round(c.duration * 100));
+    const sumLen = words.reduce((a, w) => a + w.length, 0) || 1;
+    let used = 0;
+    const body = words.map((w, i) => {
+      let cs = (i === words.length - 1) ? totalCs - used : Math.max(1, Math.round(totalCs * w.length / sumLen));
+      used += cs;
+      return `{\\kf${cs}}${w} `;
+    }).join('').trimEnd();
+    return `Dialogue: 0,${assTime(c.t)},${assTime(c.t + c.duration)},K,,0,0,0,,${body}`;
+  });
+  return head + lines.join('\n') + '\n';
+}
+
+// Burn word-by-word karaoke captions from TTS narration ([{t,text,duration}]).
+export async function burnKaraoke(input, output, { narration, style } = {}) {
+  const inAbs = resolve(input), outAbs = resolve(output);
+  const size = await probeSize(inAbs);
+  const assPath = resolve(outAbs.replace(/\.\w+$/, '') + '.kf.ass');
+  writeFileSync(assPath, buildKaraokeAss(narration || [], size, style || {}), 'utf8');
+  const copied = [];
+  for (const f of [regularFont(), boldFont()]) {
+    const d = join(dirname(assPath), basename(f));
+    try { copyFileSync(f, d); copied.push(d); } catch { /* ignore */ }
+  }
+  const hasA = await probeHasAudio(inAbs);
+  const aargs = hasA ? ['-c:a', 'copy'] : [];
+  await run(['-y', '-i', inAbs, '-vf', `ass=${basename(assPath)}:fontsdir=.`, '-r', '30',
+    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '20', '-movflags', '+faststart', ...aargs, outAbs],
+  { cwd: dirname(assPath) });
+  try { rmSync(assPath, { force: true }); } catch { /* artifact */ }
+  for (const c of copied) { try { rmSync(c, { force: true }); } catch { /* font copy */ } }
+  return outAbs;
+}
+
+// ---- Smart-crop reframe (follows the action) ------------------------------
+
+// Pure: piecewise-linear ffmpeg expression in `t` from points [{t,v}] (sorted). Holds the first/last
+// value outside the range. Mirrors buildVolumeExpr but for an arbitrary value.
+export function piecewiseExpr(points) {
+  const p = [...(points || [])].sort((a, b) => a.t - b.t);
+  if (!p.length) return '0';
+  if (p.length === 1) return p[0].v.toFixed(2);
+  let expr = p[p.length - 1].v.toFixed(2);
+  for (let i = p.length - 2; i >= 0; i--) {
+    const a = p[i], b = p[i + 1];
+    const dt = Math.max(1e-3, b.t - a.t);
+    const seg = `(${a.v.toFixed(2)}+(${(b.v - a.v).toFixed(2)})*(t-${a.t.toFixed(3)})/${dt.toFixed(3)})`;
+    expr = `if(lt(t,${b.t.toFixed(3)}),${seg},${expr})`;
+  }
+  return expr;
+}
+
+// Smart 9:16 (or any portrait/narrow aspect) reframe that FOLLOWS the action: a full-height crop
+// window panned horizontally to keep the focus (from rect-tagged events) centered, then scaled to
+// the target aspect. `focus` = [{t, cx}] in source pixels (event centers). Falls back to centered
+// when focus is empty. For wider-than-source targets it just centers (no crop benefit).
+export async function smartReframe(input, output, aspect, { focus = [], fps = 30, ease = true } = {}) {
+  const src = await probeSize(input);
+  const [aw, ah] = String(aspect).split(/[:x/]/).map(Number);
+  const ar = aw / ah;
+  const even = (n) => { n = Math.max(2, Math.round(n)); return n % 2 ? n + 1 : n; };
+  // Portrait/narrower-than-source → crop a full-height window and pan x. Else fall back to padding.
+  if (ar >= src.w / src.h) return reframe(input, output, aspect, { fps });
+  const cropW = even(Math.min(src.w, src.h * ar));
+  const half = cropW / 2;
+  const pts = (focus || []).map((f) => ({ t: f.t, v: Math.max(half, Math.min(src.w - half, f.cx)) }));
+  const xExpr = pts.length ? piecewiseExpr(pts.map((p) => ({ t: p.t, v: p.v - half })))
+    : String(Math.round((src.w - cropW) / 2));
+  const hasA = await probeHasAudio(input);
+  // crop x supports a per-frame expression; scale to a clean target keeping the 9:16 ratio.
+  const outH = even(src.h), outW = even(outH * ar);
+  const filter = `crop=w=${cropW}:h=${src.h}:x='${xExpr}':y=0,scale=${outW}:${outH}`;
+  const map = hasA ? ['-map', '0:a?'] : [];
+  const ac = hasA ? ['-c:a', 'aac', '-b:a', '160k'] : [];
+  void ease;
+  return run(['-y', '-i', input, '-vf', filter, ...map, '-r', String(fps),
+    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '20', '-movflags', '+faststart', ...ac, output]);
 }
 
 // Build a contact sheet, auto-spreading frames over the clip when `times` isn't given.

@@ -54,6 +54,20 @@ class Driver {
   mark(kind, extra = {}) {
     this.events.push({ t: (Date.now() - this.t0) / 1000, kind, ...extra });
   }
+  // The element's center + size in VIDEO pixels (CSS px × deviceScaleFactor), for the focus
+  // timeline the smart-crop reframe follows. Best-effort: returns null if it can't resolve.
+  async _rect(sel) {
+    try {
+      const r = await this.page.evaluate((s) => {
+        const el = window.__demo.resolveEl(s); if (!el) return null;
+        const b = el.getBoundingClientRect();
+        return { cx: b.left + b.width / 2, cy: b.top + b.height / 2, w: b.width, h: b.height };
+      }, sel);
+      if (!r) return null;
+      const k = this.scale || 1;
+      return { cx: r.cx * k, cy: r.cy * k, w: r.w * k, h: r.h * k };
+    } catch { return null; }
+  }
   goto(url, opts = {}) { return this.page.goto(url, { waitUntil: 'networkidle', ...opts }); }
   // A static pause. Recorded as an idle segment so encode.speedupIdle can compress it.
   async hold(ms) {
@@ -73,26 +87,27 @@ class Driver {
     this.mark('type', { sel });
     return this.page.evaluate(([s, t, c]) => window.__demo.typeInto(s, t, c), [sel, text, cps]);
   }
-  zoomTo(sel, scale, ms) {
-    this.mark('zoom', { sel, scale });
+  async zoomTo(sel, scale, ms) {
+    this.mark('zoom', { sel, scale, rect: await this._rect(sel) });
     return this.page.evaluate(([s, sc, m]) => window.__demo.zoomToSel(s, sc, m), [sel, scale, ms]);
   }
   // Auto-zoom: frame an element's bounding box (scale auto-derived; see cursor-kit frameTo).
   // opts.spotlight (true | {dim,pad,radius}) also dims everything but the framed element.
   async zoomToFit(sel, opts = {}) {
-    this.mark('zoom', { sel });
+    const rect = await this._rect(sel);
+    this.mark('zoom', { sel, rect });
     const { spotlight, ...frameOpts } = opts;
     await this.page.evaluate(([s, o]) => window.__demo.frameTo(s, o), [sel, frameOpts]);
     if (spotlight) {
-      this.mark('spotlight', { sel });
+      this.mark('spotlight', { sel, rect });
       const so = (spotlight && typeof spotlight === 'object') ? spotlight : {};
       await this.page.evaluate(([s, o]) => window.__demo.spotlight(s, o), [sel, so]);
     }
   }
   resetZoom(ms) { this.mark('zoomOut'); return this.page.evaluate((m) => window.__demo.reset(m), ms); }
   // Dim everything but `sel` (standalone spotlight; resetZoom/reset clears it).
-  spotlight(sel, opts = {}) {
-    this.mark('spotlight', { sel });
+  async spotlight(sel, opts = {}) {
+    this.mark('spotlight', { sel, rect: await this._rect(sel) });
     return this.page.evaluate(([s, o]) => window.__demo.spotlight(s, o), [sel, opts]);
   }
   spotlightOff() { return this.page.evaluate(() => window.__demo.spotlightOff()); }
@@ -143,7 +158,7 @@ class Driver {
       ]);
       return;
     }
-    this.mark('click', { sel, variant: variant || 'single' });
+    this.mark('click', { sel, variant: variant || 'single', rect: await this._rect(sel) });
     await this.page.evaluate(([s, m, o]) => window.__demo.clickSel(s, m, o), [sel, ms, { variant, ripple, pop }]);
     const z = zoom ?? (this.autoZoom ? true : null);
     if (z) {
@@ -242,6 +257,7 @@ export async function openSession({
   const driver = new Driver(page);
   driver.t0 = t0;
   driver.autoZoom = autoZoom;       // when true, every non-nav click auto-frames its target
+  driver.scale = scale;             // deviceScaleFactor → CSS px × scale = video px (for smart-crop)
   if (waitTimeout) driver.waitTimeout = waitTimeout;
   return { browser, context, page, driver };
 }

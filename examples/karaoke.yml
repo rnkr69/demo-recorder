@@ -1,0 +1,37 @@
+# Subtítulos KARAOKE palabra a palabra, sincronizados con el TTS: cada palabra se rellena (\kf de
+# libass) según los tiempos hablados. Reaprovecha la narración (voz) ya cacheada.
+#
+#   node examples/mock-server.mjs
+#   node src/run.js examples/karaoke.yml
+#
+# Salida: out/karaoke-demo.mp4 (subs karaoke) y out/karaoke-voice.mp4 (voz).
+
+url: http://127.0.0.1:4317/
+width: 1280
+height: 800
+scale: 2
+headless: true
+out: out
+
+encode:
+  captionsMp4: out/karaoke-demo.mp4
+  narrateMp4: out/karaoke-voice.mp4
+  ttsOpts: { voice: es-ES-ElviraNeural }
+  captionsOpts:
+    karaoke: true
+    style:
+      fillColor: '#6C5CE7'   # color de la palabra "cantada"
+      color: '#FFFFFF'       # color de las palabras pendientes
+      fontSize: 26
+
+steps:
+  - caption: 'Pregunta a tus datos en lenguaje natural'
+  - hold: 700
+  - type: { sel: 'demo-chat >>> textarea', text: 'Muéstrame las ventas por región.', cps: 42 }
+  - click: 'demo-chat >>> button.send'
+
+  - caption: 'La respuesta llega al instante, en streaming'
+  - waitFor: 'demo-chat table'
+  - hold: 2600
+  - caption: ''
+  - hold: 400
