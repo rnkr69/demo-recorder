@@ -46,9 +46,9 @@ re-recording after a UI tweak is a one-command operation rather than a fresh man
 ## Requirements
 
 - **Node 20+**
-- **Cross-platform** (Windows, macOS, Linux). Examples use PowerShell, but the `demo-recorder`
-  commands are identical in bash/zsh. Fonts are bundled (Inter, in `fonts/`), so nothing needs to be
-  installed on the host OS and renders are identical across platforms.
+- **Cross-platform** (Windows, macOS, Linux). Examples use bash, but the `demo-recorder` commands are
+  identical in any shell (zsh, PowerShell). Fonts are bundled (Inter, in `fonts/`), so nothing needs to
+  be installed on the host OS and renders are identical across platforms.
 - ffmpeg is **not** a system dependency — it's bundled via `ffmpeg-static`.
 
 ## Installation
@@ -76,14 +76,14 @@ arguments in your script resolve against **your current directory**, and outputs
 
 Verify your install against the bundled demo app:
 
-```powershell
+```bash
 demo-recorder mock                       # terminal 1: starts the example server on 127.0.0.1:4317
 demo-recorder run examples/demo.yml      # terminal 2: records + encodes the sample demo
 ```
 
 The finished video lands in `out/`. Open it, or generate a contact sheet to review it at a glance:
 
-```powershell
+```bash
 demo-recorder frames out\<your-video>.webm
 ```
 
@@ -235,7 +235,7 @@ login:
     - click: '#submit'
 ```
 
-```powershell
+```bash
 demo-recorder login script.yml   # writes auth.json (cookies + localStorage)
 ```
 
@@ -322,18 +322,22 @@ src/tts.js             cached, pluggable text-to-speech (edge / openai)
 src/tracks.js          resolve bundled background-music tracks by name/alias/path
 src/layout.js          out/ housekeeping (raw/, frames/, work/, pruning)
 examples/              one script per feature + a bundled mock app to record against
-docs/                  usage guide (GUIA_DE_USO), design blueprint, aesthetic options
+docs/                  usage guide, design blueprint, aesthetic options (English + Español)
 audio/bg/              bundled background-music tracks
 assets/                intro card template + test logo
 ```
 
 ## Documentation
 
-The in-depth guides under `docs/` are written in Spanish:
+The in-depth guides under `docs/` are available in English (linked below) and Spanish (each page
+links to its translation at the top):
 
-- `docs/GUIA_DE_USO.md` — full usage guide: script schema, login, encode options, troubleshooting.
-- `docs/DEMO_VIDEO_TOOL_BLUEPRINT.md` — design rationale and validated decisions.
-- `docs/MEJORAS_ESTETICAS.md` — aesthetic options (intro, styled subtitles, music ducking).
+- [`docs/USAGE.md`](docs/USAGE.md) — full usage guide: script schema, login, encode options,
+  troubleshooting. ([Español](docs/GUIA_DE_USO.md))
+- [`docs/BLUEPRINT.md`](docs/BLUEPRINT.md) — design rationale and validated decisions.
+  ([Español](docs/DEMO_VIDEO_TOOL_BLUEPRINT.md))
+- [`docs/AESTHETICS.md`](docs/AESTHETICS.md) — aesthetic options (intro, styled subtitles, music
+  ducking). ([Español](docs/MEJORAS_ESTETICAS.md))
 
 Runnable examples live in `examples/` — one `.yml` per feature (`autozoom`, `captions`, `narrate`,
 `intro-music`, `styled-subs`, `voice-only`, `real-app`), all playable against the bundled mock app.

@@ -1,5 +1,7 @@
 # Blueprint — Herramienta de vídeos demo scripted (reusable)
 
+> 🌐 [English](BLUEPRINT.md) · **Español**
+
 > **Qué es esto:** todo lo necesario para montar, **desde cero y en una carpeta
 > vacía**, una herramienta reutilizable que genera vídeos de producto fluidos y
 > **deterministas** de cualquier web app, conducida por Playwright y orquestable

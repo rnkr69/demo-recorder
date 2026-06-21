@@ -12,12 +12,18 @@ ffmpeg turns the `.webm` into mp4/gif and lays on voice, subtitles and music.
 **Crucially, this project is meant to be driven from OTHER projects.** It installs once (`npm link`)
 and exposes the global `demo-recorder` CLI; each consuming project writes its own `.yml` (it knows
 its own web app) and the engine here executes it. File-path args in a `.yml` resolve against the
-**caller's** cwd; outputs land there too. Docs and code are in Spanish — match that when editing.
+**caller's** cwd; outputs land there too.
+
+Docs are bilingual: English is the source of truth (`docs/USAGE.md`, `docs/BLUEPRINT.md`,
+`docs/AESTHETICS.md`), each mirrored in Spanish (`docs/GUIA_DE_USO.md`, `docs/DEMO_VIDEO_TOOL_BLUEPRINT.md`,
+`docs/MEJORAS_ESTETICAS.md`) — update both, and keep their language-switch header in sync. When
+editing, match the language of the file at hand: code comments are in English; the CLI help text and
+the Spanish docs are in Spanish.
 
 ## Commands
 
-```powershell
-npm install ; npm link          # one-time: register the global `demo-recorder` command
+```bash
+npm install && npm link         # one-time: register the global `demo-recorder` command
 npx playwright install chromium # only if the cached browser revision mismatches
 
 # The CLI (run from any project; paths are relative to your cwd):
@@ -110,8 +116,8 @@ Host trap to watch for: `127.0.0.1` vs `localhost` are different cookie/CSRF ori
 
 ## References
 
-- `docs/GUIA_DE_USO.md` — full usage guide (the spec schema, login, encode options, troubleshooting).
-- `docs/DEMO_VIDEO_TOOL_BLUEPRINT.md` — design rationale and validated decisions.
-- `docs/MEJORAS_ESTETICAS.md` — aesthetic options (intro, styled subtitles, music ducking).
+- `docs/USAGE.md` (ES: `docs/GUIA_DE_USO.md`) — full usage guide (the spec schema, login, encode options, troubleshooting).
+- `docs/BLUEPRINT.md` (ES: `docs/DEMO_VIDEO_TOOL_BLUEPRINT.md`) — design rationale and validated decisions.
+- `docs/AESTHETICS.md` (ES: `docs/MEJORAS_ESTETICAS.md`) — aesthetic options (intro, styled subtitles, music ducking).
 - `examples/*.yml` — one spec per feature (autozoom, captions, narrate, intro-music, styled-subs…),
   runnable against the bundled mock app in `examples/demo-app/`.

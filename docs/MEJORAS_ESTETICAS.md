@@ -1,5 +1,7 @@
 # Mejoras estéticas del demo-recorder
 
+> 🌐 [English](AESTHETICS.md) · **Español**
+
 Guía de las cuatro mejoras estéticas: **elección de pistas**, **subtítulos estilizados**,
 **intro de marca** y **música de fondo con ducking**. Todo se configura desde el bloque
 `encode:` del `.yml`. Para el contexto y las decisiones de diseño, ver también el plan en

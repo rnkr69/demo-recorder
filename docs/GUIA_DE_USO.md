@@ -1,7 +1,9 @@
 # Guía de uso — demo-recorder
 
-Cómo grabar un vídeo hero/demo **fluido y determinista** de una web app. Pensada para
-Windows (PowerShell). El flujo de trabajo es siempre el mismo bucle:
+> 🌐 [English](USAGE.md) · **Español**
+
+Cómo grabar un vídeo hero/demo **fluido y determinista** de una web app. Multiplataforma
+(Windows, macOS, Linux). El flujo de trabajo es siempre el mismo bucle:
 
 > **escribir guión → grabar → sacar contact-sheet → mirarlo → ajustar → encodear**
 
@@ -53,12 +55,12 @@ El motor se instala una sola vez (aquí). Desde el proyecto de tu web —donde C
 conoce la app— escribes el `.yml` y lo lanzas con la CLI global; **las salidas caen en
 ese proyecto**:
 
-```powershell
-cd C:\ruta\a\tu-proyecto-web
-demo-recorder probe  .\mi-demo.yml       # 1) valida selectores/auth (headed, ~10s, sin grabar)
-demo-recorder record .\mi-demo.yml       # 2) graba sin encode -> demo-out\page@<hash>.webm
-demo-recorder frames .\demo-out\page@<hash>.webm   #    contact-sheet para revisar
-demo-recorder encode .\mi-demo.yml       # 3) voz/subtítulos/mp4 una sola vez al final
+```bash
+cd /ruta/a/tu-proyecto-web
+demo-recorder probe  ./mi-demo.yml       # 1) valida selectores/auth (headed, ~10s, sin grabar)
+demo-recorder record ./mi-demo.yml       # 2) graba sin encode -> demo-out/page@<hash>.webm
+demo-recorder frames ./demo-out/page@<hash>.webm   #    contact-sheet para revisar
+demo-recorder encode ./mi-demo.yml       # 3) voz/subtítulos/mp4 una sola vez al final
 ```
 
 Comandos: `demo-recorder probe|record|encode|run|frames|login|mock|help`. Hay un **skill
@@ -71,19 +73,19 @@ vídeo y él escribe el `.yml`, lo prueba con `probe`, graba, mira el contact-sh
 
 Antes de tu web real, comprueba que todo el pipeline funciona con la app de ejemplo:
 
-```powershell
+```bash
 # Terminal 1: backend + app demo
 npm run mock
 # Terminal 2: grabar el guión de ejemplo
 node src/run.js examples/demo.yml
-# -> imprime  VIDEO: out\page@<hash>.webm
+# -> imprime  VIDEO: out/page@<hash>.webm
 ```
 
 Saca un contact-sheet y míralo:
 
-```powershell
-node scripts/frames.mjs out\page@<hash>.webm
-# abre out\contact.png  (cada frame lleva su timestamp)
+```bash
+node scripts/frames.mjs out/page@<hash>.webm
+# abre out/contact.png  (cada frame lleva su timestamp)
 ```
 
 Si ves cursor, tecleo, tabla y zoom → todo OK. Otros ejemplos para probar las capas:
@@ -130,24 +132,24 @@ steps:
 
 1. **Arranca tu app** en una URL local (o usa su URL desplegada).
 2. **Copia un ejemplo** como punto de partida:
-   ```powershell
-   copy examples\demo.yml examples\mi-demo.yml
+   ```bash
+   cp examples/demo.yml examples/mi-demo.yml
    ```
 3. **Edita `mi-demo.yml`**: pon tu `url` y reescribe los `steps` con tus selectores y el
    flujo. (Para encontrar selectores: abre tu app → clic derecho → Inspeccionar.)
 4. **PROBE** (valida selectores/auth en ~10 s, sin grabar; para en el 1º que falla y
    vuelca el DOM):
-   ```powershell
+   ```bash
    demo-recorder probe mi-demo.yml          # afina UN beat con  --from N --to M
    ```
 5. **RECORD** (solo grabar, rápido) + mira el contact-sheet, y **ajusta** timing/zoom:
-   ```powershell
+   ```bash
    demo-recorder record mi-demo.yml
-   demo-recorder frames demo-out\page@<hash>.webm
+   demo-recorder frames demo-out/page@<hash>.webm
    ```
    Repite 5 hasta que quede fluido (no encodees aún: el TTS/subtítulos tardan 30–60 s).
 6. **ENCODE** una sola vez al final (voz/subtítulos/mp4, sección 7):
-   ```powershell
+   ```bash
    demo-recorder encode mi-demo.yml
    ```
 
@@ -210,8 +212,8 @@ Si tu app requiere autenticación, haz login **una vez** y reutiliza la sesión.
 **Opción A — desde el YAML** (login scriptable). Declara `storageState`; si el fichero no
 existe, los `login.steps` se ejecutan una vez y la sesión se guarda y reutiliza:
 
-```powershell
-$env:DEMO_EMAIL="yo@correo.com"; $env:DEMO_PASSWORD="secreto"
+```bash
+export DEMO_EMAIL="yo@correo.com" DEMO_PASSWORD="secreto"
 ```
 ```yaml
 storageState: auth.json
@@ -227,7 +229,7 @@ login:
 **Opción B — manual (para MFA/captcha):** edita `scripts/login.mjs` con tu URL/selectores
 y ejecútalo; se abre el navegador (headed) para que completes lo que haga falta:
 
-```powershell
+```bash
 node scripts/login.mjs    # guarda auth.json
 ```
 
@@ -298,8 +300,8 @@ encode:
 
 No hace falta ver el vídeo en directo. Tras cada grabación (`record`):
 
-```powershell
-demo-recorder frames demo-out\page@<hash>.webm
+```bash
+demo-recorder frames demo-out/page@<hash>.webm
 ```
 
 Genera el contact-sheet en `out/frames/` (una rejilla de frames **con el timestamp de cada
@@ -307,8 +309,8 @@ uno**). Ábrelo y comprueba cursor, tecleo, render del contenido y encuadre del 
 falla, sabes el segundo exacto → ajusta el `hold`/`zoom`/selector y regraba con `record`.
 
 Frames en momentos concretos:
-```powershell
-demo-recorder frames out\raw\page@<hash>.webm "0.5,3,5,7,9"
+```bash
+demo-recorder frames out/raw/page@<hash>.webm "0.5,3,5,7,9"
 ```
 
 > Para fallos de **selector o auth** (no de timing), usa `demo-recorder probe` en vez de
@@ -336,7 +338,7 @@ out/
   intermedios) y poda `raw/`, **sin tocar los finales**. `--all` vacía además `raw/` y `frames/`;
   `--keep N` cambia cuántas grabaciones conservar.
 
-```powershell
+```bash
 demo-recorder clean              # limpieza normal (deja finales + 3 grabaciones)
 demo-recorder clean --all        # purga profunda (solo finales)
 demo-recorder clean --keep 1     # conserva solo la última grabación
