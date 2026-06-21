@@ -326,8 +326,8 @@ All of these are documented in detail in **[docs/AESTHETICS.md](AESTHETICS.md)**
 - **Outro end-card** — `encode.outro` (mirror of the intro: animated card with CTA/URL/logo);
   intro+demo+outro share one continuous music bed. Example `examples/outro.yml`.
 - **Step-synced SFX** — `encode.sfx` plays short sound effects on the recorded beats (clicks,
-  zooms, keycaps) from the `<video>.events.json` sidecar, mixed over the ducked audio. You supply
-  the audio in `audio/sfx/`. Example `examples/sfx.yml`.
+  zooms, keycaps) from the `<video>.events.json` sidecar, mixed over the ducked audio. 4 SFX are
+  bundled (`click`/`whoosh`/`key`/`chime`); override with your own. Example `examples/sfx.yml`.
 - **Multi-format reframe** — `encode.reframe: ['9:16','1:1']` exports extra aspect ratios with
   blurred padding (for social) from the same recording. Example `examples/sfx.yml`.
 - **Lower-thirds + watermark** — `encode.lowerThirds` turns `chapter:` steps into an animated

@@ -5,7 +5,8 @@ import { mapSfx } from '../../src/encode.js';
 
 const evs = [
   { t: 1.0, kind: 'click', sel: 'a' },
-  { t: 2.0, kind: 'type', sel: 'input' },   // muted by default
+  { t: 2.0, kind: 'type', sel: 'input' },     // muted by default
+  { t: 2.5, kind: 'spotlight', sel: 'b' },    // muted by default (rides along with the zoom)
   { t: 3.0, kind: 'zoom', sel: 'b' },
   { t: 4.0, kind: 'nav', sel: 'c' },
 ];

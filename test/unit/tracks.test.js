@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
-import { resolveTrack, bundledTracks, defaultTrack, resolveSfx } from '../../src/tracks.js';
+import { resolveTrack, bundledTracks, defaultTrack, resolveSfx, bundledSfx } from '../../src/tracks.js';
 
 test('bundledTracks lists committed music with kebab slugs', () => {
   const tracks = bundledTracks();
@@ -54,4 +54,12 @@ test('resolveSfx returns null for empty or unknown names (does not throw)', () =
 test('resolveSfx passes a real existing path through', () => {
   const self = fileURLToPath(import.meta.url);
   assert.equal(resolveSfx(self), self);
+});
+
+test('the bundled SFX set covers the default kinds (click/whoosh/key/chime)', () => {
+  const slugs = bundledSfx().map((s) => s.slug);
+  for (const want of ['click', 'whoosh', 'key', 'chime']) {
+    assert.ok(slugs.includes(want), `expected bundled SFX "${want}" in audio/sfx/`);
+    assert.match(resolveSfx(want).toLowerCase(), new RegExp(want));
+  }
 });

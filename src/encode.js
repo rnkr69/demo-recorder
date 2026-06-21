@@ -454,8 +454,11 @@ export async function reframe(input, output, aspect, { fps = 30, blur = 24, dim 
 // Default mapping from a recorder event `kind` to a bundled SFX name. `null` mutes a kind.
 // Resolution of the name → file (and dropping unresolved ones) happens in the caller via resolveSfx.
 const DEFAULT_SFX_MAP = {
-  click: 'click', nav: 'click', zoom: 'whoosh', zoomOut: 'whoosh', spotlight: 'whoosh',
-  keycap: 'key', keypress: 'key', success: 'chime', type: null, move: null, scroll: null,
+  click: 'click', nav: 'click', zoom: 'whoosh', zoomOut: 'whoosh',
+  keycap: 'key', keypress: 'key', success: 'chime',
+  // Muted by default: `spotlight` almost always rides along with a `zoomFit` (which already
+  // whooshes) → mapping it too would double the whoosh. `type`/`move`/`scroll` are too frequent.
+  spotlight: null, type: null, move: null, scroll: null,
 };
 
 // Pure: turn recorder events ([{t,kind,...}]) into SFX cues ([{name,delay,gain,kind}]). `offset`

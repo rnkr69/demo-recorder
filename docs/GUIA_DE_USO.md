@@ -327,7 +327,8 @@ Todo esto se documenta en detalle en **[docs/MEJORAS_ESTETICAS.md](MEJORAS_ESTET
   intro+demo+outro comparten una misma cama musical continua. Ejemplo `examples/outro.yml`.
 - **SFX sincronizados con los pasos** — `encode.sfx` reproduce efectos de sonido cortos sobre los
   beats grabados (clicks, zooms, keycaps) desde el sidecar `<video>.events.json`, mezclados sobre el
-  audio ya con ducking. Tú aportas el audio en `audio/sfx/`. Ejemplo `examples/sfx.yml`.
+  audio ya con ducking. Trae 4 SFX incluidos (`click`/`whoosh`/`key`/`chime`); sobrescríbelos con los
+  tuyos. Ejemplo `examples/sfx.yml`.
 - **Reencuadre multi-formato** — `encode.reframe: ['9:16','1:1']` exporta relaciones de aspecto
   extra con relleno difuminado (para redes) desde la misma grabación. Ejemplo `examples/sfx.yml`.
 - **Lower-thirds + watermark** — `encode.lowerThirds` convierte los pasos `chapter:` en una tira de

@@ -226,13 +226,15 @@ encode:
       keycap: key
 ```
 
-**You supply the audio.** No sound binaries ship with the engine: drop short files into `audio/sfx/`
-(or point `dir` at your own folder). Resolution works like the music tracks (exact name, alias/slug,
-or path) but SFX are **optional** — if a name doesn't resolve, that effect is skipped (the render
-never fails for a missing SFX). Default `kind → name` map: `click`/`nav` → `click`,
-`zoom`/`zoomOut`/`spotlight` → `whoosh`, `keycap` → `key`, `success` → `chime`;
-`type`/`move`/`scroll` are muted. So dropping `click.wav`, `whoosh.wav`, `key.wav`, `chime.wav` is
-enough to get SFX. See `audio/sfx/README.md`.
+**Bundled SFX.** The engine ships 4 sound effects (`click`, `whoosh`, `key`, `chime`) in `audio/sfx/`,
+so SFX work out of the box; override them with your own files of the same name, or point `dir` at your
+own folder. Resolution works like the music tracks (exact name, alias/slug, or path) and SFX are
+**optional** — if a name doesn't resolve, that effect is skipped (the render never fails for a missing
+SFX). Default `kind → name` map: `click`/`nav` → `click`,
+`zoom`/`zoomOut` → `whoosh`, `keycap` → `key`, `success` → `chime`;
+`type`/`move`/`scroll`/`spotlight` are muted (spotlight rides along with a `zoomFit`, which already
+whooshes — map it explicitly if you use standalone spotlights). The bundled set already covers every
+default kind. See `audio/sfx/README.md`.
 
 ---
 

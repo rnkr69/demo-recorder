@@ -12,10 +12,13 @@ ruta. Los SFX son **opcionales** — si un nombre no se resuelve, ese efecto sim
 | evento (`kind`) | SFX por defecto |
 |---|---|
 | `click`, `nav`   | `click` |
-| `zoom`, `zoomOut`, `spotlight` | `whoosh` |
+| `zoom`, `zoomOut` | `whoosh` |
 | `keycap`         | `key` |
 | `success`        | `chime` |
-| `type`, `move`, `scroll` | (silenciados) |
+| `type`, `move`, `scroll`, `spotlight` | (silenciados) |
+
+> `spotlight` va silenciado porque casi siempre acompaña a un `zoomFit` (que ya suena con `whoosh`);
+> si usas spotlights sueltos, mapéalo: `map: { spotlight: whoosh }`.
 
 Así que basta con dejar aquí `click.wav`, `whoosh.wav`, `key.wav`, `chime.wav` (o alias que
 contengan esas palabras) para tener SFX. Sobrescribe el mapa desde el `.yml`:
@@ -31,5 +34,6 @@ encode:
     # dir: assets/my-sfx      # opcional: carpeta propia en tu proyecto
 ```
 
-No se incluyen binarios de audio en el repo: trae los tuyos (libres de derechos) o apunta `dir` a
-tu propia carpeta.
+El motor ya incluye 4 SFX (`click.wav`, `whoosh.wav`, `key.wav`, `chime.wav`), así que los SFX
+funcionan de fábrica. Sobrescríbelos con los tuyos (mismos nombres) o apunta `dir` a tu propia
+carpeta. Usa audio libre de derechos.

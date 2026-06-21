@@ -231,13 +231,15 @@ encode:
       keycap: key
 ```
 
-**Tú aportas el audio.** El motor no trae binarios de sonido: deja archivos cortos en `audio/sfx/`
-(o apunta `dir` a tu propia carpeta). La resolución funciona como las pistas de música (nombre exacto,
-alias/slug o ruta) pero los SFX son **opcionales** — si un nombre no resuelve, ese efecto se salta (el
-render nunca falla por un SFX que falta). Mapa por defecto `kind → name`: `click`/`nav` → `click`,
-`zoom`/`zoomOut`/`spotlight` → `whoosh`, `keycap` → `key`, `success` → `chime`;
-`type`/`move`/`scroll` van silenciados. Así que dejar `click.wav`, `whoosh.wav`, `key.wav`,
-`chime.wav` basta para tener SFX. Ver `audio/sfx/README.md`.
+**SFX incluidos.** El motor ya trae 4 efectos (`click`, `whoosh`, `key`, `chime`) en `audio/sfx/`, así
+que los SFX funcionan de fábrica; sobrescríbelos con los tuyos (mismos nombres) o apunta `dir` a tu
+propia carpeta. La resolución funciona como las pistas de música (nombre exacto, alias/slug o ruta) y
+los SFX son **opcionales** — si un nombre no resuelve, ese efecto se salta (el render nunca falla por
+un SFX que falta). Mapa por defecto `kind → name`: `click`/`nav` → `click`,
+`zoom`/`zoomOut` → `whoosh`, `keycap` → `key`, `success` → `chime`;
+`type`/`move`/`scroll`/`spotlight` van silenciados (el spotlight acompaña a un `zoomFit`, que ya
+suena — mapéalo explícitamente si usas spotlights sueltos). El set incluido ya cubre todos los kinds
+por defecto. Ver `audio/sfx/README.md`.
 
 ---
 
