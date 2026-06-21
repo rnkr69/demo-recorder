@@ -484,10 +484,11 @@ re-litigated — full usage in [AESTHETICS.md](AESTHETICS.md):
    next to the `.ass` and `fontsdir=.` + `cwd` to sidestep the Windows drive-colon in filter args.
 
 3. **A `<video>.events.json` sidecar timestamps every visual beat.** Clicks/zooms/types/keycaps were
-   previously untimed; `Driver.mark()` records them (same `t0` as the idle/captions sidecars). This
-   one piece of infra unlocked step-synced SFX and lower-thirds, and is the hook for future
-   event-driven post-pro (transitions, speed ramps). SFX/chapter times are shifted by the intro
-   length when composing, exactly like the music envelope's `offset`.
+   previously untimed; `Driver.mark()` records them (same `t0` as the idle/captions sidecars), and
+   zoom/spotlight/click events also carry the element rect (video px). This one piece of infra drives
+   step-synced SFX, lower-thirds, speed ramps, section transitions and the action-following
+   smart-crop. SFX/chapter times are shifted by the intro length when composing, exactly like the
+   music envelope's `offset`.
 
 4. **Match-cut is an `xfade` zoom-dissolve, not a geometric morph.** Aligning a logo to a real DOM
    element is fragile and expensive; instead the intro push-zooms and the intro→demo boundary is an

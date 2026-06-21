@@ -486,10 +486,11 @@ registradas para no re-litigarlas — el uso completo está en [MEJORAS_ESTETICA
 
 3. **Un sidecar `<video>.events.json` marca el timestamp de cada beat visual.** Clicks/zooms/types/
    keycaps antes no estaban temporizados; `Driver.mark()` los registra (mismo `t0` que los sidecars
-   idle/captions). Esta única pieza de infra desbloqueó los SFX sincronizados con los pasos y los
-   lower-thirds, y es el gancho para futura post-pro guiada por eventos (transiciones, rampas de
-   velocidad). Los tiempos de SFX/capítulos se desplazan por la duración de la intro al componer,
-   exactamente como el `offset` de la envolvente de música.
+   idle/captions), y los eventos zoom/spotlight/click llevan además el rect del elemento (px de vídeo).
+   Esta única pieza de infra impulsa los SFX sincronizados con los pasos, los lower-thirds, las rampas
+   de velocidad, las transiciones de sección y el smart-crop que sigue la acción. Los tiempos de
+   SFX/capítulos se desplazan por la duración de la intro al componer, exactamente como el `offset` de
+   la envolvente de música.
 
 4. **El match-cut es un zoom-disolvencia `xfade`, no un morph geométrico.** Alinear un logo a un
    elemento real del DOM es frágil y caro; en su lugar la intro hace un push-zoom y el límite

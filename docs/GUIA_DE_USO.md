@@ -334,21 +334,35 @@ Todo esto se documenta en detalle en **[docs/MEJORAS_ESTETICAS.md](MEJORAS_ESTET
 - **Lower-thirds + watermark** — `encode.lowerThirds` convierte los pasos `chapter:` en una tira de
   capítulos animada; `encode.watermark` añade una marca de agua en la esquina (texto o logo). Ejemplo
   `examples/chapters.yml`.
+- **Speed ramps** — `encode.rampsMp4` + `ramps` ponen en cámara lenta los beats clave (click/zoom)
+  sobre una velocidad base ágil (una salida solo-vídeo aparte, como `idleMp4`). Ejemplo `examples/ramps.yml`.
+- **Transiciones de sección** — `encode.transitions` puntúa los beats `nav`/`chapter` con un xfade
+  estilizado (zoom-blur/whip) en vez de un corte seco. Ejemplo `examples/transitions.yml`.
+- **Subtítulos karaoke** — `captionsOpts.karaoke` rellena los subtítulos palabra a palabra en sync con
+  el TTS. Ejemplo `examples/karaoke.yml`.
+- **Smart-crop + barra de progreso + grade** — `encode.reframe.follow` hace que el recorte 9:16 siga la
+  acción; `encode.progressBar` añade una barra que crece; `encode.grade` una sutil viñeta/LUT. Ejemplo
+  `examples/social.yml`.
 
 ```yaml
 encode:
   captionsMp4: out/demo-cc.mp4
-  captionsOpts: { style: { outlineColor: '#101010', outline: 2, fadeIn: 200, fadeOut: 200 } }
+  captionsOpts: { karaoke: true, style: { fillColor: '#6C5CE7' } }   # karaoke palabra a palabra
   narrateMp4: out/demo.mp4
   ttsOpts:
     voice: es-ES-ElviraNeural
     music: { track: ambient-gold, full: 0.85, duck: 0.16, lead: 1.2, gapRaise: 3.0 }  # pista incluida (alias)
-  intro: { engine: html, template: mesh, typewriter: true, title: 'Mi Web App', matchCut: true, result: out/demo-final.mp4 }
+  intro: { engine: html, template: mesh, typewriter: true, title: 'Mi Web App', matchCut: true, sting: chime, result: out/demo-final.mp4 }
   outro: { engine: html, title: 'Pruébalo', cta: 'Empieza ya', url: 'github.com/me/app' }
   lowerThirds: { hold: 3.0 }
   watermark: { text: 'Mi Marca', pos: br }
-  sfx: { gain: 0.8 }              # necesita audio en audio/sfx/ (click/whoosh/key/chime)
-  reframe: ['9:16', '1:1']
+  sfx: { gain: 0.8 }              # SFX incluidos (click/whoosh/key/chime); sobrescríbelos con los tuyos
+  transitions: { at: [nav, chapter], transition: zoomin }
+  progressBar: { color: '#6C5CE7', height: 6 }
+  grade: { vignette: true, saturation: 1.08 }
+  reframe: { ratios: ['9:16'], follow: true }     # smart-crop que sigue la acción
+  rampsMp4: out/demo-ramps.mp4                     # salida aparte (re-temporizada, sin subs/voz en sync)
+  ramps: { base: 1.5, slowmo: 0.5, at: [click, zoom] }
 ```
 
 ---

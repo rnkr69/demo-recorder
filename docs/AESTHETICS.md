@@ -21,6 +21,10 @@ Ready-to-run examples:
 | `examples/chapters.yml`    | Lower-thirds (chapter titles) + watermark |
 | `examples/outro.yml`       | Intro + demo + outro with one continuous music bed |
 | `examples/match-cut.yml`   | Animated intro template + match-cut into the demo |
+| `examples/ramps.yml`       | Deliberate speed ramps (slow-mo key beats, brisk elsewhere) |
+| `examples/transitions.yml` | Stylized transitions between sections (nav/chapter) |
+| `examples/karaoke.yml`     | Word-by-word karaoke captions synced to the TTS |
+| `examples/social.yml`      | Smart-crop 9:16 (follows the action) + progress bar + grade |
 
 ```bash
 node examples/mock-server.mjs           # deterministic backend (127.0.0.1:4317)
@@ -353,6 +357,80 @@ encode:
 
 ---
 
+## 12. Speed ramps (`encode.rampsMp4`)
+
+Deliberate pacing: slow-mo the key moments and speed through the routine. `buildSpeedPlan` reads the
+events sidecar and slows windows around the chosen beats (`at`, e.g. `click`/`zoom`) over a brisk
+`base` speed; `applySpeedSegments` re-times with the same split→trim→setpts→concat as the idle
+speedup. **Video-only, separate output** — re-timing changes the PTS, so burned subs/voice would
+desync (produce ramps apart from the narrated cut, like `idleMp4`). Example: `examples/ramps.yml`.
+
+```yaml
+encode:
+  rampsMp4: out/demo-ramps.mp4
+  ramps: { base: 1.5, slowmo: 0.5, at: [click, zoom], window: 0.6 }
+```
+
+## 13. Section transitions (`encode.transitions`)
+
+The recording is **continuous**, so there is no hard cut to crossfade within the demo. Instead this
+punctuates **section beats** (`nav`/`chapter`) with a stylized `xfade` (zoom-blur, whip, dissolve…):
+`transitionAtCuts` splits the composed final at those event times and crossfades the boundaries
+(audio `acrossfade`d too). It shortens the clip slightly (overlap per cut). Example:
+`examples/transitions.yml`.
+
+```yaml
+encode:
+  transitions: { at: [nav, chapter], transition: zoomin, duration: 0.4 }
+  # transition: any ffmpeg xfade — zoomin | hblur | radial | wipeleft | dissolve | fade…
+```
+
+## 14. Karaoke captions (`captionsOpts.karaoke`)
+
+Fill the subtitles **word by word** in sync with the voice. `buildKaraokeAss` takes the TTS word
+timings (`getNarration` gives each caption's spoken `duration`), splits the text and emits libass
+`\kf` tags weighted by word length; the sung word shows `fillColor`, the rest `color`. Needs the
+narration (it pulls it, cached). Example: `examples/karaoke.yml`.
+
+```yaml
+encode:
+  captionsMp4: out/demo-cc.mp4
+  narrateMp4: out/demo.mp4
+  captionsOpts: { karaoke: true, style: { fillColor: '#6C5CE7', color: '#FFFFFF', fontSize: 26 } }
+```
+
+## 15. Progress bar, colour grade & intro sting
+
+- **Progress bar** — `encode.progressBar` draws a thin bar that grows left→right over the whole clip
+  (`drawbox` with a per-frame width expression), on top of everything. `{ color, height, pos: bottom|top }`.
+- **Colour grade** — `encode.grade` applies a subtle, consistent look: a `vignette`, `eq` tweaks
+  (`contrast`/`saturation`/`brightness`) and an optional 3D LUT (`lut: my.cube`).
+- **Intro sting** — `intro.sting: <sfx>` plays a one-shot (e.g. `chime`) at the very start of the
+  composed video, via the SFX stage (so it ducks with the music bed). `intro.stingGain` to taste.
+
+```yaml
+encode:
+  progressBar: { color: '#6C5CE7', height: 6, pos: bottom }
+  grade: { vignette: true, contrast: 1.04, saturation: 1.08 }   # + lut: my.cube
+  intro: { engine: html, title: 'My Web App', sting: chime }
+```
+
+## 16. Smart-crop reframe (follows the action)
+
+`encode.reframe.follow` makes the 9:16 (or any portrait) cut **track the action** instead of just
+padding. The recorder tags each `zoom`/`spotlight`/`click` event with the element's rect in video
+pixels; `smartReframe` builds a focus timeline and pans a full-height crop window horizontally
+(eased, via `piecewiseExpr`) to keep the focus centered, then scales to the target aspect. With no
+focus data it falls back to the blurred-padding reframe (§7). Example: `examples/social.yml`.
+
+```yaml
+encode:
+  mp4: out/demo.mp4
+  reframe: { ratios: ['9:16'], follow: true }
+```
+
+---
+
 ## File reference (engine)
 
 - `src/cursor-kit.js` — the in-page effects (§5): the counter-transformed overlay layer,
@@ -361,9 +439,13 @@ encode:
 - `src/encode.js` — `buildAss`/`burnSubs` (ASS subs), `addMusicBed`/`mixVoiceAndMusic`
   (ducking), `buildIntroFfmpeg`/`concatVideos`/`toMp4Silent` (intro), `probeSize`/`probeHasAudio`,
   `mapSfx`/`muxSfx` (SFX, §6), `reframe`/`aspectToCanvas` (reframe, §7), `buildLowerThirds`/
-  `burnLowerThirds` (§9), `burnWatermark` (§10), `xfadeJoin`/`xfadeOffsets` (match-cut, §11).
+  `burnLowerThirds` (§9), `burnWatermark` (§10), `xfadeJoin`/`xfadeOffsets` (match-cut, §11),
+  `idleSegments`/`applySpeedSegments`/`buildSpeedPlan` (ramps, §12), `transitionAtCuts` (§13),
+  `buildKaraokeAss`/`burnKaraoke` (§14), `addProgressBar`/`colorGrade` (§15),
+  `smartReframe`/`piecewiseExpr` (§16).
 - `src/recorder.js` — the `Driver` step vocabulary + `mark()`, which writes the
-  `<video>.events.json` sidecar consumed by the SFX and lower-thirds stages.
+  `<video>.events.json` sidecar (it tags zoom/spotlight/click events with the element rect for the
+  smart-crop) consumed by the SFX, lower-thirds, ramps, transitions and reframe stages.
 - `src/tracks.js` — `resolveTrack` (music) and `resolveSfx` (optional SFX, returns null on miss).
 - `src/tts.js` — `getNarration` (voice timings) + `musicEnvelope` (with intro `offset`).
 - `src/run.js` — `applyEncode` orchestrates the stages: intro/outro bookends (or match-cut
