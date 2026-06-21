@@ -1,7 +1,8 @@
 // scripts/login.mjs — log in to your real app ONCE and save the session to auth.json.
 // The demo script then starts authenticated via `storageState: auth.json`.
 //
-//   $env:DEMO_EMAIL="me@x.com"; $env:DEMO_PASSWORD="secret"   # PowerShell
+//   $env:DEMO_EMAIL="me@x.com"; $env:DEMO_PASSWORD="secret"   # PowerShell (Windows)
+//   DEMO_EMAIL=me@x.com DEMO_PASSWORD=secret \                # bash / zsh (macOS/Linux)
 //   node scripts/login.mjs
 //
 // Headed by default so you can solve MFA/captcha by hand if the scripted flow can't.

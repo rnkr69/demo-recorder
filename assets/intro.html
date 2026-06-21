@@ -4,6 +4,12 @@
 <meta charset="utf-8">
 <title>intro</title>
 <style>
+  /* Bundled Inter (engine fonts/, resolved relative to this file's URL) so the HTML intro renders
+     identically on Windows/macOS/Linux without relying on OS-installed fonts. */
+  @font-face { font-family: "Inter"; font-weight: 400; font-style: normal;
+    src: url("../fonts/Inter-Regular.ttf") format("truetype"); }
+  @font-face { font-family: "Inter"; font-weight: 700; font-style: normal;
+    src: url("../fonts/Inter-Bold.ttf") format("truetype"); }
   :root { --bg: #0B0F1A; --fg: #FFFFFF; }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { width: 100%; height: 100%; overflow: hidden; }
@@ -14,7 +20,7 @@
       radial-gradient(120vh 120vh at 50% 38%, color-mix(in srgb, var(--bg) 78%, #ffffff 8%), var(--bg) 70%),
       var(--bg);
     color: var(--fg);
-    font-family: "Segoe UI", Inter, system-ui, sans-serif;
+    font-family: Inter, system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
   }
   .logo {

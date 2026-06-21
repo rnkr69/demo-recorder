@@ -49,8 +49,9 @@ encode:
   captionsMp4: out/demo.mp4
   captionsOpts:
     style:
-      font: Segoe UI          # nombre de la fuente (FontName)
-      fontFile: C:/Windows/Fonts/segoeui.ttf   # opcional: solo si NO está instalada
+      font: Inter             # fuente empacada por defecto (cross-platform, sin instalar nada)
+      # font: MiFuente        # + fontFile para usar una tipografía propia (su nombre de familia)
+      # fontFile: ./assets/MiFuente.ttf   # ruta a tu .ttf; se carga vía fontsdir (sin instalar)
       fontSize: 24            # px sobre referencia de 800 de alto (escala con el vídeo)
       color: '#FFFFFF'        # color del texto
       outlineColor: '#101010' # color del TRAZO/borde
@@ -70,7 +71,10 @@ Notas:
   para una entrada que sube (aproximación de easing con libass).
 - **Tamaño consistente:** `fontSize`/márgenes se autoría sobre una referencia de 800 px de
   alto; libass los escala al tamaño real (con `scale: 2` el vídeo es 2× y los subs también).
-- **Fuente no instalada:** indica `fontFile`; se copia junto al `.ass` y se carga vía
+- **Fuente por defecto:** **Inter** (empacada en `fonts/`), así el render es idéntico en
+  Windows/macOS/Linux sin depender de fuentes del sistema. Inter (regular + bold) se carga siempre
+  vía `fontsdir`, sin instalar nada.
+- **Fuente propia:** indica `fontFile` (ruta a tu `.ttf`); se copia junto al `.ass` y se carga vía
   `fontsdir` (sortea el escape de `:` de unidad en Windows). El `font:` debe coincidir con el
   nombre de familia de la fuente.
 
@@ -94,12 +98,16 @@ encode:
     bg: '#0B0F1A'           # color de fondo
     fg: '#FFFFFF'           # color de texto (solo motor html)
     animation: fade-zoom    # fade | fade-zoom
+    # font: Inter           # (solo motor ffmpeg) fuente; por defecto Inter empacada
+    # fontBold: ./assets/MiFuente-Bold.ttf   # opcional: variante bold para el título
     music: audio/bg/4.-Ambient-Gold.mp3   # opcional: música solo en la intro
 ```
 
 - **`engine: ffmpeg`** (por defecto): compone fondo + logo + título + subtítulo con `drawtext`,
   fade-in/out y un zoom sutil. Determinista y rápido, sin navegador. Se construye al tamaño
-  exacto del vídeo destino.
+  exacto del vídeo destino. La tipografía es **Inter** empacada (cross-platform); sobrescríbela con
+  `font` (subtítulo/regular) y `fontBold` (título) — una ruta, un nombre empacado o un alias. Ambas
+  deben vivir en el mismo directorio (el motor pasa solo el basename al filtro de ffmpeg).
 - **`engine: html`**: renderiza `assets/intro.html` (animaciones CSS más ricas) y la graba con
   el mismo motor Playwright. Personaliza esa plantilla para tu marca.
 - La concatenación re-codifica (robusta entre codificadores distintos) y mantiene audio solo si

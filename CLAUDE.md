@@ -79,6 +79,10 @@ The `.yml` (or `.json`) **spec** is a thin declarative layer; `src/run.js` maps 
 - **`src/tracks.js`** — resolves `music.track` (a path, a bundled filename in `audio/bg/`, or a
   fuzzy alias/slug) to an absolute path; the engine ships its own music so `music` works from any
   project without copying files.
+- **`src/fonts.js`** — resolves fonts the same way `tracks.js` resolves music: the engine bundles
+  Inter (regular + bold) in `fonts/` and uses it by default for subtitles (libass `fontsdir`),
+  intro card and contact sheet, so renders are deterministic and cross-platform (no OS-installed
+  fonts). `font`/`fontFile`/`fontBold` overrides accept a path, a bundled name, or an alias.
 - **`src/layout.js`** — `out/` housekeeping: `out/` = final videos, `out/raw/` = recordings +
   sidecars (auto-pruned to the last few), `out/frames/` = contact sheets, `out/work/` =
   intermediates (auto-wiped after each run/encode).

@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync, copyFileSync, rmSync } from 'node:fs';
 import { dirname, basename, join, resolve } from 'node:path';
 import ffmpegPath from 'ffmpeg-static';
+import { regularFont, boldFont, defaultFontName, resolveFont } from './fonts.js';
 
 const run = (args, opts = {}) => new Promise((res, rej) => {
   // -loglevel error keeps output clean (suppresses banners/progress/benign warnings)
@@ -116,7 +117,7 @@ export async function speedupIdle(input, output, {
 // This is the core of the Claude Code self-verification loop: one Read of the
 // contact sheet shows cursor / typing / zoom / timing across the whole clip.
 export async function contactSheet(input, times, output, {
-  cols, scale = 640, label = true, font = 'C:/Windows/Fonts/segoeui.ttf',
+  cols, scale = 640, label = true, font = regularFont(),
 } = {}) {
   if (!Array.isArray(times) || times.length === 0) throw new Error('contactSheet: pass a non-empty times[] array');
   const n = times.length;
@@ -244,7 +245,6 @@ export function probeHasAudio(input) {
   });
 }
 
-const firstFont = (cands) => cands.find((f) => existsSync(f)) || cands[0];
 // Escape inline drawtext text: backslash, the option separator ':' and ',', and swap raw
 // apostrophes for a typographic one (sidesteps filtergraph single-quote escaping entirely).
 const dtText = (t) => String(t)
@@ -256,7 +256,8 @@ const dtText = (t) => String(t)
 // matches the target video exactly.
 export function buildIntroFfmpeg(opts = {}) {
   const { out, logo, title = '', subtitle = '', bg = '#0B0F1A',
-    animation = 'fade-zoom', music, width = 1280, height = 800, fps = 30 } = opts;
+    animation = 'fade-zoom', music, width = 1280, height = 800, fps = 30,
+    font, fontBold } = opts;
   const dur = opts.duration ?? 2.8;
   const W = width, H = height;
   const color = `color=c=${String(bg).replace('#', '0x')}:s=${W}x${H}:d=${dur.toFixed(3)}:r=${fps}`;
@@ -276,9 +277,12 @@ export function buildIntroFfmpeg(opts = {}) {
     cur = '[v1]';
   }
   // Run with cwd=fonts dir and reference fonts by basename (sidesteps the Windows drive-colon
-  // that drawtext's ':'-separated options can't parse) — same trick as contactSheet.
-  const fontFileB = firstFont(['C:/Windows/Fonts/segoeuib.ttf', 'C:/Windows/Fonts/segoeui.ttf']);
-  const fontFileR = firstFont(['C:/Windows/Fonts/segoeui.ttf', 'C:/Windows/Fonts/arial.ttf']);
+  // that drawtext's ':'-separated options can't parse) — same trick as contactSheet. Defaults to
+  // the bundled Inter (cross-platform, no OS fonts needed); `font`/`fontBold` override (a path,
+  // bundled name, or alias). Both must live in the same directory (the cwd trick passes only the
+  // basename) — the bundled fonts do; a custom `font` reuses its own file for the bold title.
+  const fontFileR = resolveFont(font);
+  const fontFileB = resolveFont(fontBold || font, boldFont());
   const fontDir = dirname(fontFileB);
   const chain = [];
   if (title) {
@@ -430,7 +434,7 @@ const assTime = (s) => {
 // (libass scales the reference up to the real video). `style` overrides any default.
 export function buildAss(events, duration, style = {}, size = {}) {
   const s = {
-    font: 'Segoe UI', fontSize: 24, color: '#FFFFFF', outlineColor: '#101010',
+    font: defaultFontName(), fontSize: 24, color: '#FFFFFF', outlineColor: '#101010',
     outline: 2, shadow: 0.5, shadowColor: '#000000', shadowAlpha: 0x60,
     bold: false, alignment: 2, marginV: 48, marginL: 64, marginR: 64,
     fadeIn: 200, fadeOut: 200, slideUp: 0, playResY: 800,
@@ -519,17 +523,24 @@ export async function burnSubs(input, output, { captions, srt, style } = {}) {
   const [dur, size] = await Promise.all([probeDuration(inAbs), probeSize(inAbs)]);
   const assPath = resolve(outAbs.replace(/\.\w+$/, '') + '.ass');
   writeFileSync(assPath, buildAss(events, dur, st, size), 'utf8');
-  // For a non-installed font, copy it next to the .ass and point fontsdir at the cwd ('.'),
-  // avoiding the Windows drive-colon that would break the filter's ':'-separated options.
-  let fontsOpt = '';
-  if (st.fontFile && existsSync(resolve(st.fontFile))) {
-    try { copyFileSync(resolve(st.fontFile), join(dirname(assPath), basename(st.fontFile))); } catch { /* ignore */ }
-    fontsOpt = ':fontsdir=.';
+  // Make fonts discoverable by libass without relying on OS-installed fonts: copy them next to the
+  // .ass and point fontsdir at the cwd ('.'), which also sidesteps the Windows drive-colon that
+  // would break the filter's ':'-separated options. Bundled Inter (regular + bold) is always made
+  // available so the default `Fontname: Inter` resolves on any platform; a user `style.fontFile`
+  // (paired with its own `style.font` family name) is added on top.
+  const fontFiles = [regularFont(), boldFont()];
+  if (st.fontFile && existsSync(resolve(st.fontFile))) fontFiles.push(resolve(st.fontFile));
+  const copied = [];
+  for (const f of fontFiles) {
+    const dest = join(dirname(assPath), basename(f));
+    try { copyFileSync(f, dest); copied.push(dest); } catch { /* ignore */ }
   }
-  const filter = `ass=${basename(assPath)}${fontsOpt}`;
+  const filter = `ass=${basename(assPath)}:fontsdir=.`;
   await run(['-y', '-i', inAbs, '-vf', filter, '-r', '30',
     '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '20', '-movflags', '+faststart', outAbs],
   { cwd: dirname(assPath) });
+  // Drop the build artifacts (the .ass and the font copies) — they're only needed during the burn.
   try { rmSync(assPath, { force: true }); } catch { /* the .ass is just a build artifact */ }
+  for (const c of copied) { try { rmSync(c, { force: true }); } catch { /* font copy is disposable */ } }
   return outAbs;
 }

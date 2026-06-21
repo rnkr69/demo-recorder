@@ -1,17 +1,39 @@
 import { chromium } from 'playwright';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { homedir } from 'node:os';
 import { cursorKit } from './cursor-kit.js';
 import { rawDir, ensureDir } from './layout.js';
 
+// Where Playwright caches downloaded browsers, per platform.
+function playwrightBrowsersDir() {
+  if (process.env.PLAYWRIGHT_BROWSERS_PATH) return process.env.PLAYWRIGHT_BROWSERS_PATH;
+  if (process.platform === 'win32') {
+    return join(process.env.LOCALAPPDATA || homedir(), 'ms-playwright');
+  }
+  if (process.platform === 'darwin') {
+    return join(homedir(), 'Library', 'Caches', 'ms-playwright');
+  }
+  return join(homedir(), '.cache', 'ms-playwright'); // linux & others
+}
+
 // Optional: locate an installed headless-shell if node_modules/browser revisions
-// mismatch (otherwise just rely on `npx playwright install chromium`).
+// mismatch (otherwise just rely on `npx playwright install chromium`). Best-effort and
+// cross-platform: returns undefined if not found, so Playwright falls back to its bundled browser.
 function findExecutable() {
-  const base = join(process.env.LOCALAPPDATA || process.env.HOME || '', 'ms-playwright');
+  const base = playwrightBrowsersDir();
   if (!existsSync(base)) return undefined;
   const dir = readdirSync(base).find((d) => d.startsWith('chromium_headless_shell'));
   if (!dir) return undefined;
-  const p = join(base, dir, 'chrome-headless-shell-win64', 'chrome-headless-shell.exe');
+  // The per-OS subfolder ('...-win64', '...-mac-arm64', '...-linux', …) and binary name vary; find
+  // the platform folder by prefix and add the .exe suffix only on Windows.
+  const root = join(base, dir);
+  let sub;
+  try { sub = readdirSync(root).find((d) => d.startsWith('chrome-headless-shell')); }
+  catch { return undefined; }
+  if (!sub) return undefined;
+  const bin = process.platform === 'win32' ? 'chrome-headless-shell.exe' : 'chrome-headless-shell';
+  const p = join(root, sub, bin);
   return existsSync(p) ? p : undefined;
 }
 

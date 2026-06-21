@@ -266,7 +266,10 @@ Cuatro extras se documentan en detalle en **[docs/MEJORAS_ESTETICAS.md](MEJORAS_
 - **Subtítulos estilizados** — `captionsOpts.style` (objeto) genera un `.ass`: trazo en vez de
   caja negra, fuente/color/grosor configurables y fade-in/out. Ejemplo `examples/styled-subs.yml`.
 - **Intro de marca** — `encode.intro` antepone una tarjeta con logo + título + animación
-  (motor `ffmpeg` o `html`).
+  (motor `ffmpeg` o `html`); con el motor `ffmpeg` la tipografía se ajusta con `font`/`fontBold`.
+- **Tipografía empacada** — subtítulos, intro y contact-sheet usan **Inter** (en `fonts/`) por
+  defecto, así el render es idéntico en Windows/macOS/Linux sin instalar fuentes. Pasa `fontFile`
+  (subs) o `font`/`fontBold` (intro) para usar una tipografía propia.
 - **Música de fondo con ducking** — `ttsOpts.music` baja la música antes del primer TTS, la
   sube en huecos largos y la devuelve al final. **3 pistas incluidas** (alias `ambient-gold`,
   `sidewalk-chalk`, `she-said-i-wonder`; `demo-recorder tracks`) o tu propio audio. Ejemplo `examples/intro-music.yml`.

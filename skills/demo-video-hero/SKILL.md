@@ -123,7 +123,7 @@ Apunta `url` a la app real y **fija solo lo no-determinista**, dejando el resto 
 `login.steps` se ejecutan una vez (headed) y la sesión (cookies+localStorage) se guarda
 y reutiliza. Para regenerarla: `demo-recorder login mi-demo.yml`. Para MFA manual, el
 login headed te deja completarlo a mano. `auth*.json` debe ir en `.gitignore` — nunca lo
-subas. Credenciales por `${ENV}` (p.ej. PowerShell: `$env:DEMO_PASSWORD="…"`).
+subas. Credenciales por `${ENV}` (PowerShell: `$env:DEMO_PASSWORD="…"` · bash: `DEMO_PASSWORD=…`).
 
 ```yaml
 url: ${APP_URL}
@@ -184,7 +184,7 @@ encode:
   captionsMp4: out/work/demo-cc.mp4  # intermedio si encadenas voz → out/work/
   captionsOpts:
     style:
-      font: Segoe UI
+      font: Inter               # fuente empacada por defecto (cross-platform); fontFile para una propia
       fontSize: 24
       color: '#FFFFFF'
       outlineColor: '#101010'   # el TRAZO

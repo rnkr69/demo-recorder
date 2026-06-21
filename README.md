@@ -46,8 +46,9 @@ re-recording after a UI tweak is a one-command operation rather than a fresh man
 ## Requirements
 
 - **Node 20+**
-- Windows / PowerShell is the primary target (paths and fonts assume Windows), but the engine is
-  cross-platform Node.
+- **Cross-platform** (Windows, macOS, Linux). Examples use PowerShell, but the `demo-recorder`
+  commands are identical in bash/zsh. Fonts are bundled (Inter, in `fonts/`), so nothing needs to be
+  installed on the host OS and renders are identical across platforms.
 - ffmpeg is **not** a system dependency — it's bundled via `ffmpeg-static`.
 
 ## Installation
