@@ -747,19 +747,53 @@ export async function transitionAtCuts(input, output, cuts, { transition = 'fade
 
 // ---- Progress bar + colour grade (whole-clip overlays) --------------------
 
-// A thin progress bar that grows left→right over the clip (drawbox with a per-frame width
-// expression). pos: bottom | top.
+// Pure: an .ass that draws a progress bar growing left→right in `steps` discrete slices (smooth
+// enough at ~0.4s/slice). Rendered with libass because the ffmpeg-static `drawbox` does NOT
+// re-evaluate its width expression per frame (it bakes a single, full-width box). pos: bottom | top.
+export function buildProgressBarAss(dur, size = {}, { color = '#6C5CE7', height = 6, pos = 'bottom', opacity = 0.9, steps } = {}) {
+  const W = Math.round(size.w || 1280), H = Math.round(size.h || 800);
+  const n = steps || Math.max(8, Math.min(240, Math.round(dur / 0.4)));
+  const dt = dur / n;
+  const y = pos === 'top' ? 0 : H - height;
+  const hex = String(color).replace('#', '').padStart(6, '0');
+  const bgr = (hex.slice(4, 6) + hex.slice(2, 4) + hex.slice(0, 2)).toUpperCase(); // ASS is BGR
+  const a = Math.max(0, Math.min(255, Math.round((1 - opacity) * 255))).toString(16).padStart(2, '0').toUpperCase();
+  const head = `[Script Info]
+ScriptType: v4.00+
+PlayResX: ${W}
+PlayResY: ${H}
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: PB,Arial,10,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+`;
+  const lines = [];
+  for (let i = 0; i < n; i++) {
+    const start = i * dt, end = (i === n - 1) ? dur : (i + 1) * dt;
+    const bw = Math.max(1, Math.round((W * (i + 1)) / n));
+    lines.push(`Dialogue: 0,${assTime(start)},${assTime(end)},PB,,0,0,0,,` +
+      `{\\an7\\pos(0,${y})\\1c&H${bgr}&\\1a&H${a}&\\bord0\\shad0\\p1}m 0 0 l ${bw} 0 ${bw} ${height} 0 ${height}{\\p0}`);
+  }
+  return head + lines.join('\n') + '\n';
+}
+
+// Burn a progress bar that grows over the clip (bottom by default). Keeps the source audio.
 export async function addProgressBar(input, output, { color = '#6C5CE7', height = 6, pos = 'bottom', opacity = 0.9, fps = 30 } = {}) {
-  const dur = await probeDuration(input);
-  const hasA = await probeHasAudio(input);
-  const y = pos === 'top' ? '0' : `ih-${height}`;
-  const col = String(color).replace('#', '0x');
-  // drawbox evaluates w per frame; t/dur ∈ [0,1] over the clip, so the bar grows L→R. (No comma in
-  // the expression — escaping it inside the filtergraph breaks the parse and the bar stays full.)
-  const vf = `drawbox=x=0:y=${y}:w=iw*t/${dur.toFixed(3)}:h=${height}:color=${col}@${opacity}:t=fill`;
+  const inAbs = resolve(input), outAbs = resolve(output);
+  const [dur, size] = await Promise.all([probeDuration(inAbs), probeSize(inAbs)]);
+  const assPath = resolve(outAbs.replace(/\.\w+$/, '') + '.pb.ass');
+  writeFileSync(assPath, buildProgressBarAss(dur, size, { color, height, pos, opacity }), 'utf8');
+  const hasA = await probeHasAudio(inAbs);
   const aargs = hasA ? ['-c:a', 'copy'] : [];
-  return run(['-y', '-i', input, '-vf', vf, '-r', String(fps),
-    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '20', '-movflags', '+faststart', ...aargs, output]);
+  await run(['-y', '-i', inAbs, '-vf', `ass=${basename(assPath)}`, '-r', String(fps),
+    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '20', '-movflags', '+faststart', ...aargs, outAbs],
+  { cwd: dirname(assPath) });
+  try { rmSync(assPath, { force: true }); } catch { /* artifact */ }
+  return outAbs;
 }
 
 // A subtle colour grade for consistency across demos: optional 3D LUT (.cube), eq tweaks and a
