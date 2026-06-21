@@ -16,10 +16,11 @@ import { record, saveAuth, openSession } from './recorder.js';
 import {
   toMp4, toGif, speedupIdle, writeSrt, burnSubs,
   buildIntroFfmpeg, concatVideos, probeSize, probeDuration, addMusicBed, toMp4Silent,
+  reframe, mapSfx, muxSfx,
 } from './encode.js';
 import { narrateVideo, getNarration, musicEnvelope } from './tts.js';
 import { rawDir, workDir, ensureDir, pruneRaw, wipeWork } from './layout.js';
-import { resolveTrack } from './tracks.js';
+import { resolveTrack, resolveSfx } from './tracks.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -54,12 +55,17 @@ async function runStep(d, step) {
   switch (action) {
     case 'goto':      { const o = norm(arg); return d.goto(o.sel || o.url, o.opts || {}); }
     case 'hold':      return d.hold(Number(arg));
-    case 'move':      { const o = norm(arg); return d.moveTo(o.sel, o.ms); }
+    case 'move':      { const { sel, ms, ...o } = norm(arg); return d.moveTo(sel, ms, o); }
     case 'type':      { const o = norm(arg); return d.type(o.sel, o.text, o.cps); }
-    case 'click':     { const o = norm(arg); return d.click(o.sel, { nav: !!o.nav, ms: o.ms, zoom: o.zoom }); }
+    case 'click':     { const o = norm(arg); return d.click(o.sel, { nav: !!o.nav, ms: o.ms, zoom: o.zoom, variant: o.variant, ripple: o.ripple, pop: o.pop }); }
     case 'zoomTo':    { const o = norm(arg); return d.zoomTo(o.sel, o.scale, o.ms); }
     case 'zoomFit':   { const { sel, ...opts } = norm(arg); return d.zoomToFit(sel, opts); }
     case 'resetZoom': return d.resetZoom(typeof arg === 'number' ? arg : undefined);
+    case 'spotlight': { const { sel, ...o } = norm(arg); return d.spotlight(sel, o); }
+    case 'spotlightOff': return d.spotlightOff();
+    case 'key':
+    case 'keycap':    return d.keycap(typeof arg === 'string' ? arg : (arg && (arg.label || arg.text)), (arg && typeof arg === 'object') ? arg : {});
+    case 'scroll':    { const { sel, ...o } = norm(arg); return d.scrollTo(sel, o); }
     case 'caption':   return d.caption(typeof arg === 'string' ? arg : (arg && arg.text));
     case 'waitFor':   { const o = norm(arg); return d.waitFor(o.sel, o.opts || {}); }
     default:          throw new Error('unknown step action: ' + action);
@@ -151,11 +157,41 @@ async function buildIntroClip(spec, intro, target) {
   return introMp4;
 }
 
+// Render the OUTRO end-card (mirror of the intro): an animated CSS card (assets/outro.html) with a
+// CTA + repo URL, transcoded to mp4 with a silent track so it concatenates after the demo. The
+// ffmpeg engine reuses buildIntroFfmpeg (a generic card). Audio is added later as one continuous bed.
+async function recordOutroHtml(outro, spec) {
+  const tpl = pathToFileURL(resolve(HERE, '../assets/outro.html')).href;
+  const params = new URLSearchParams();
+  for (const k of ['title', 'subtitle', 'cta', 'url', 'bg', 'fg']) {
+    if (outro[k]) params.set(k, outro[k]);
+  }
+  if (outro.logo) params.set('logo', pathToFileURL(resolve(outro.logo)).href);
+  const url = `${tpl}?${params.toString()}`;
+  const webm = await record(async (d) => { await d.hold((outro.duration ?? 3.0) * 1000); }, {
+    outDir: spec.out || 'out', width: spec.width, height: spec.height, scale: spec.scale,
+    headless: spec.headless ?? true, url,
+  });
+  const outroMp4 = resolve(outro.out || join(ensureDir(workDir(spec.out)), 'outro.mp4'));
+  await toMp4Silent(webm, outroMp4);
+  return outroMp4;
+}
+
+async function buildOutroClip(spec, outro, target) {
+  if ((outro.engine || 'html') === 'html') return recordOutroHtml(outro, spec);
+  const size = await probeSize(target);
+  const outroMp4 = resolve(outro.out || join(ensureDir(workDir(spec.out)), 'outro.mp4'));
+  const music = outro.music ? resolveTrack(outro.music) : undefined;
+  await buildIntroFfmpeg({ ...outro, music, out: outroMp4, width: size.w, height: size.h });
+  return outroMp4;
+}
+
 async function applyEncode(spec, video) {
   const e = spec.encode;
   if (!e) return;
   // Make sure every configured output's parent dir exists (e.g. out/work/ for intermediates).
-  [e.srt, e.captionsMp4, e.narrateMp4, e.idleMp4, e.mp4, e.gif, e.intro?.result, e.intro?.out, e.music?.out]
+  [e.srt, e.captionsMp4, e.narrateMp4, e.idleMp4, e.mp4, e.gif, e.intro?.result, e.intro?.out,
+    e.outro?.result, e.outro?.out, e.music?.out, e.sfx?.out]
     .forEach((p) => { if (p) ensureDir(dirname(resolve(p))); });
   if (e.srt) { await writeSrt(video, e.srt); console.log('SRT:', e.srt); }
   if (e.captionsMp4) { await burnSubs(video, e.captionsMp4, e.captionsOpts || {}); console.log('CAPTIONS MP4:', e.captionsMp4); }
@@ -175,42 +211,90 @@ async function applyEncode(spec, video) {
   if (e.mp4) { await toMp4(video, e.mp4, e.mp4opts || {}); console.log('MP4:', e.mp4); }
   if (e.gif) { await toGif(video, e.gif, e.gifopts || {}); console.log('GIF:', e.gif); }
 
-  // ---- Final composition: prepend intro, then lay ONE continuous music bed over everything.
-  if (e.intro || music) {
-    // The finished demo to build on: explicit prependTo, else the last meaningful output.
-    let target = resolve(e.intro?.prependTo || e.narrateMp4 || e.captionsMp4 || e.idleMp4 || e.mp4 || video);
+  // ---- Final composition: intro/outro bookends → ONE continuous music bed → step-synced SFX.
+  const bookend = e.intro || e.outro;
+  if (bookend || music || e.sfx) {
+    // The finished demo to build on: explicit prependTo/appendTo, else the last meaningful output.
+    let target = resolve(e.intro?.prependTo || e.outro?.appendTo
+      || e.narrateMp4 || e.captionsMp4 || e.idleMp4 || e.mp4 || video);
     let introDur = 0;
 
     const work = () => ensureDir(workDir(spec.out));
     const tmpIn = (p, tag) => join(work(), basename(p).replace(/\.(\w+)$/, `.${tag}.$1`));
+    // The single published filename for the composed video (back-compat: intro.result still wins).
+    const result = resolve(e.intro?.result || e.outro?.result || (music && music.out) || (e.sfx && e.sfx.out)
+      || (bookend ? target.replace(/\.(\w+)$/, '-final.$1') : target));
+    const left = { music: !!music, sfx: !!e.sfx };
 
-    if (e.intro) {
-      const introMp4 = await buildIntroClip(spec, e.intro, target);
-      introDur = await probeDuration(introMp4);
-      const result = resolve(e.intro.result || target.replace(/\.(\w+)$/, '-intro.$1'));
-      // If music follows, concat to a work/ temp; the music stage writes the final `result`.
-      const concatOut = music ? tmpIn(result, 'novol') : result;
-      await concatVideos([introMp4, target], concatOut);
-      if (!e.intro.out) { try { unlinkSync(introMp4); } catch { /* drop the intro clip intermediate */ } }
-      target = concatOut;
-      if (!music) console.log('INTRO:', result);
-      e.intro._result = result; // stash the final name for the music stage
+    // Bookends: build the intro/outro clips (sized to the demo) and concat into ONE timeline.
+    if (bookend) {
+      const parts = [];
+      let introMp4, outroMp4;
+      if (e.intro) { introMp4 = await buildIntroClip(spec, e.intro, target); introDur = await probeDuration(introMp4); parts.push(introMp4); }
+      parts.push(target);
+      if (e.outro) { outroMp4 = await buildOutroClip(spec, e.outro, target); parts.push(outroMp4); }
+      const more = left.music || left.sfx;
+      const out = more ? tmpIn(result, 'novol') : result;
+      await concatVideos(parts, out);
+      if (e.intro && !e.intro.out) { try { unlinkSync(introMp4); } catch { /* drop intro clip */ } }
+      if (e.outro && !e.outro.out) { try { unlinkSync(outroMp4); } catch { /* drop outro clip */ } }
+      target = out;
+      if (!more) console.log('COMPOSED:', result);
     }
 
+    // One continuous, ducked music bed over the WHOLE timeline (intro+demo+outro).
     if (music) {
+      left.music = false;
       const track = resolveTrack(music.track || music.path); // path, bundled name/alias, or default
       const dur = await probeDuration(target);
       // Voice timings come from the demo's captions; shift them by the intro length.
       const narration = e.narrateMp4 ? await getNarration(video, { ...(e.ttsOpts || {}), captionsFrom: video }) : [];
       const keyframes = musicEnvelope(narration, dur, music, introDur);
-      // Final filename: the intro result (if any), else the narrate/target file (overwritten).
-      const finalOut = resolve(e.intro ? e.intro._result : (music.out || target));
-      // ffmpeg can't read+write the same file → bounce through a work/ temp, then rename into place.
-      const tmp = tmpIn(finalOut, 'mtmp');
+      // ffmpeg can't read+write the same file → always bounce through a work/ temp, then rename.
+      const tmp = tmpIn(result, 'mwork');
+      const dest = left.sfx ? tmpIn(result, 'mtmp') : result;
       await addMusicBed(target, tmp, { path: track, keyframes, duration: dur, fadeIn: music.fadeIn, fadeOut: music.fadeOut });
-      if (e.intro) { try { unlinkSync(target); } catch { /* drop the temp concat */ } } // target is the work/ .novol temp
-      renameSync(tmp, finalOut);
-      console.log(e.intro ? 'INTRO+MUSIC:' : 'MUSIC:', finalOut);
+      if (bookend) { try { unlinkSync(target); } catch { /* drop the .novol concat temp */ } }
+      renameSync(tmp, dest);
+      target = dest;
+      if (!left.sfx) console.log(bookend ? 'COMPOSED+MUSIC:' : 'MUSIC:', result);
+    }
+
+    // Step-synced SFX, mixed on top of the (ducked) audio. Events are offset by the intro length.
+    if (e.sfx) {
+      const so = (typeof e.sfx === 'object') ? e.sfx : {};
+      let events = [];
+      try { events = JSON.parse(readFileSync(`${video}.events.json`, 'utf8')).events; } catch { /* no events sidecar */ }
+      const cues = mapSfx(events, { ...so, offset: introDur + (so.offset || 0) })
+        .map((c) => ({ ...c, path: resolveSfx(so.dir ? join(resolve(so.dir), c.name) : c.name) }))
+        .filter((c) => c.path);
+      if (cues.length) {
+        const tmp = tmpIn(result, 'sfx');
+        await muxSfx(target, tmp, cues);
+        if (resolve(target) !== result) { try { unlinkSync(target); } catch { /* drop the temp */ } }
+        renameSync(tmp, result);
+        console.log('SFX:', result, `(${cues.length} efectos)`);
+      } else {
+        if (resolve(target) !== result) renameSync(target, result);
+        console.log('SFX: sin efectos resueltos (añade audio/sfx/ o usa sfx.map). Salida:', result);
+      }
+    }
+
+    e._composed = result;
+  }
+
+  // ---- Extra aspect-ratio reframes (1:1, 9:16, …) from the finished video, for social. ----
+  if (e.reframe) {
+    const cfg = (e.reframe && typeof e.reframe === 'object' && !Array.isArray(e.reframe)) ? e.reframe : {};
+    const ratios = Array.isArray(e.reframe) ? e.reframe
+      : (typeof e.reframe === 'string' ? [e.reframe] : (cfg.ratios || []));
+    const srcRef = resolve(e._composed || e.narrateMp4 || e.captionsMp4 || e.idleMp4 || e.mp4 || video);
+    for (const ratio of ratios) {
+      const tag = String(ratio).replace(/[:/x]/g, 'x');
+      const out = resolve((cfg.out && cfg.out[ratio]) || srcRef.replace(/\.(\w+)$/, `-${tag}.$1`));
+      ensureDir(dirname(out));
+      await reframe(srcRef, out, ratio, cfg.opts || {});
+      console.log('REFRAME', ratio + ':', out);
     }
   }
 }
@@ -311,7 +395,7 @@ async function diagnose(page, action, arg) {
   const sel = (typeof arg === 'string') ? arg : (arg && (arg.sel || arg.url));
   const lines = [`URL: ${page.url()}`];
   try { lines.push(`título: ${await page.title()}`); } catch { /* ignore */ }
-  if (sel && ['type', 'click', 'move', 'zoomTo', 'zoomFit'].includes(action)) {
+  if (sel && ['type', 'click', 'move', 'zoomTo', 'zoomFit', 'spotlight', 'scroll'].includes(action)) {
     const c = await page.evaluate(browserDescribeChain, sel).catch(() => null);
     if (c) lines.push('selector (kit `>>>`):\n' + c);
   } else if (sel && action === 'waitFor') {
@@ -367,7 +451,7 @@ export async function probeScript(file, { from, to } = {}) {
 }
 
 // Pure helpers exposed ONLY for unit tests (not part of the public API).
-export const __test = { subEnv, sliceSteps, norm, sessionOpts, preflight };
+export const __test = { subEnv, sliceSteps, norm, sessionOpts, preflight, runStep };
 
 // CLI guard: `node src/run.js <guion.yml>` still works standalone.
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

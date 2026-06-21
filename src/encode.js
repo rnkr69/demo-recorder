@@ -414,6 +414,91 @@ export function toMp4Silent(input, output, { fps = 30 } = {}) {
     '-c:a', 'aac', '-b:a', '160k', output]);
 }
 
+// ---- Reframe (extra aspect ratios) ----------------------------------------
+
+// Pick a WxH canvas of the given aspect that FITS the source without cropping its content: keep the
+// limiting source dimension and derive the other. The source is later centered over a blurred,
+// scaled-up copy of itself (intentional-looking padding). `aspect` like '9:16','1:1','4:5'.
+export function aspectToCanvas(srcW, srcH, aspect) {
+  const [aw, ah] = String(aspect).split(/[:x/]/).map(Number);
+  if (!aw || !ah) throw new Error('reframe: bad aspect ' + aspect);
+  const ar = aw / ah;
+  let W, H;
+  if (ar < srcW / srcH) { W = srcW; H = Math.round(W / ar); }   // taller target → pad top/bottom
+  else { H = srcH; W = Math.round(H * ar); }                    // wider target → pad left/right
+  const even = (n) => { n = Math.max(2, Math.round(n)); return n % 2 ? n + 1 : n; };
+  return { w: even(W), h: even(H) };
+}
+
+// Produce an extra aspect-ratio cut from a finished video: the source is contained (no crop) and
+// centered over a blurred, cover-scaled copy of itself, so 16:9 footage reads naturally as 9:16/1:1
+// for social without losing any pixels. Carries through the source audio if present.
+export async function reframe(input, output, aspect, { fps = 30, blur = 24, dim = 0.06 } = {}) {
+  const src = await probeSize(input);
+  const { w: W, h: H } = aspectToCanvas(src.w, src.h, aspect);
+  const filter =
+    '[0:v]split=2[bg][fg];' +
+    `[bg]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},` +
+    `gblur=sigma=${blur},eq=brightness=-${dim}[bgb];` +
+    `[fg]scale=${W}:${H}:force_original_aspect_ratio=decrease[fgc];` +
+    '[bgb][fgc]overlay=(W-w)/2:(H-h)/2[v]';
+  const hasA = await probeHasAudio(input);
+  const map = hasA ? ['-map', '[v]', '-map', '0:a?'] : ['-map', '[v]'];
+  const acodec = hasA ? ['-c:a', 'aac', '-b:a', '160k'] : [];
+  return run(['-y', '-i', input, '-filter_complex', filter, ...map, '-r', String(fps),
+    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '20', '-movflags', '+faststart', ...acodec, output]);
+}
+
+// ---- Step-synced SFX ------------------------------------------------------
+
+// Default mapping from a recorder event `kind` to a bundled SFX name. `null` mutes a kind.
+// Resolution of the name → file (and dropping unresolved ones) happens in the caller via resolveSfx.
+const DEFAULT_SFX_MAP = {
+  click: 'click', nav: 'click', zoom: 'whoosh', zoomOut: 'whoosh', spotlight: 'whoosh',
+  keycap: 'key', keypress: 'key', success: 'chime', type: null, move: null, scroll: null,
+};
+
+// Pure: turn recorder events ([{t,kind,...}]) into SFX cues ([{name,delay,gain,kind}]). `offset`
+// shifts every cue on the timeline (e.g. a prepended intro). `map` overrides per kind (a name, a
+// {name,gain} object, or null to mute); `only` restricts to a kind whitelist. ffmpeg-free.
+export function mapSfx(events, { map = {}, gain = 1, offset = 0, only } = {}) {
+  const m = { ...DEFAULT_SFX_MAP, ...map };
+  return (events || [])
+    .map((e) => {
+      const entry = Object.prototype.hasOwnProperty.call(m, e.kind)
+        ? m[e.kind] : (e.kind === 'sfx' ? e.name : undefined);
+      if (!entry) return null;
+      const name = typeof entry === 'object' ? entry.name : entry;
+      const g = (typeof entry === 'object' && entry.gain != null) ? entry.gain : gain;
+      if (!name) return null;
+      return { name, delay: Math.max(0, e.t + offset), gain: g, kind: e.kind };
+    })
+    .filter(Boolean)
+    .filter((c) => !only || only.includes(c.kind));
+}
+
+// Lay short one-shot SFX over a finished video's audio, synced to the cues ([{path,delay,gain}]).
+// Mixed ON TOP of the existing (already music-ducked) track with normalize=0 so levels are kept;
+// dropout_transition=0 avoids amix pumping the bed up as one-shots end. Assumes a non-empty list.
+export async function muxSfx(input, output, cues, { fps = 30 } = {}) {
+  const list = (cues || []).filter((c) => c.path);
+  if (!list.length) throw new Error('muxSfx: no resolvable SFX cues');
+  const dur = await probeDuration(input);
+  const hasA = await probeHasAudio(input);
+  const inputs = [];
+  list.forEach((c) => inputs.push('-i', c.path));
+  const chains = list.map((c, i) =>
+    `[${i + 1}:a]adelay=${Math.round(c.delay * 1000)}:all=1,volume=${(c.gain ?? 1).toFixed(3)}[s${i}]`);
+  const sfxIn = list.map((_, i) => `[s${i}]`).join('');
+  const baseIn = hasA ? '[0:a]' : '';
+  const n = list.length + (hasA ? 1 : 0);
+  const parts = [...chains, `${baseIn}${sfxIn}amix=inputs=${n}:normalize=0:dropout_transition=0[aout]`];
+  return run(['-y', '-i', input, ...inputs, '-filter_complex', parts.join(';'),
+    '-map', '0:v', '-map', '[aout]', '-r', String(fps),
+    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '20', '-movflags', '+faststart',
+    '-c:a', 'aac', '-b:a', '160k', '-t', dur.toFixed(3), output]);
+}
+
 // Build a contact sheet, auto-spreading frames over the clip when `times` isn't given.
 // Output defaults to contact.png next to the video. Returns { out, times }.
 export async function autoContactSheet(input, { times, out, cols = 4 } = {}) {

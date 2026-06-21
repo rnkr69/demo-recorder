@@ -84,3 +84,57 @@ test('record + encode against the mock app', { timeout: 180000 }, async (t) => {
   const srtText = readFileSync(srt, 'utf8');
   assert.match(srtText, /Hola mundo/);
 });
+
+test('effects: events sidecar + intro/outro bookends + reframe', { timeout: 180000 }, async (t) => {
+  const skip = whySkip();
+  if (skip) { t.skip(skip); return; }
+
+  const out = mkdtempSync(join(tmpdir(), 'demorec-fx-'));
+  const server = spawn(process.execPath, [join(REPO, 'examples', 'mock-server.mjs')],
+    { stdio: 'ignore', env: { ...process.env, PORT: String(PORT) } });
+  t.after(() => {
+    try { server.kill(); } catch { /* ignore */ }
+    try { rmSync(out, { recursive: true, force: true }); } catch { /* ignore */ }
+  });
+  await waitForServer(`http://127.0.0.1:${PORT}/`);
+
+  const demoMp4 = join(out, 'demo.mp4');
+  const finalMp4 = join(out, 'final.mp4');
+  const specPath = join(out, 'fx.yml');
+  // Effect steps emit events; intro+outro (html) bookend; reframe makes a 1:1 cut. No TTS/music so
+  // the smoke stays offline (mp4 has no audio → bookend concat is video-only, which is fine).
+  writeFileSync(specPath, [
+    `url: http://127.0.0.1:${PORT}/`,
+    'width: 640',
+    'height: 400',
+    'headless: true',
+    `out: ${JSON.stringify(out)}`,
+    'steps:',
+    "  - keycap: 'cmd+k'",
+    "  - spotlight: 'demo-chat'",
+    '  - hold: 0.3',
+    '  - spotlightOff: true',
+    '  - move: { sel: \'demo-chat\', ms: 200, trail: true }',
+    'encode:',
+    `  mp4: ${JSON.stringify(demoMp4)}`,
+    '  intro: { engine: html, title: Hola, duration: 0.8 }',
+    `  outro: { engine: html, title: Gracias, cta: Pruébalo, duration: 0.8, result: ${JSON.stringify(finalMp4)} }`,
+    "  reframe: ['1:1']",
+  ].join('\n'), 'utf8');
+
+  const { runScript } = await import('../../src/run.js');
+  await runScript(specPath, {});
+
+  // The events sidecar landed next to the demo webm, with the kinds the steps emitted.
+  const rawDir = join(out, 'raw');
+  const webm = readdirSync(rawDir).filter((f) => f.endsWith('.webm') && existsSync(join(rawDir, `${f}.events.json`)))[0];
+  assert.ok(webm, 'expected a webm with an .events.json sidecar');
+  const events = JSON.parse(readFileSync(join(rawDir, `${webm}.events.json`), 'utf8')).events;
+  const kinds = new Set(events.map((e) => e.kind));
+  assert.ok(kinds.has('keycap') && kinds.has('spotlight') && kinds.has('move'), 'expected effect events');
+
+  // The bookended final (intro+demo+outro) and the 1:1 reframe both exist and are non-empty.
+  assert.ok(statSync(finalMp4).size > 0, 'composed final mp4 should be non-empty');
+  const square = join(out, 'final-1x1.mp4');
+  assert.ok(existsSync(square) && statSync(square).size > 0, 'expected a 1:1 reframe output');
+});

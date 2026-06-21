@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>outro</title>
+<style>
+  /* Bundled Inter (engine fonts/, resolved relative to this file's URL) so the HTML outro renders
+     identically on Windows/macOS/Linux without relying on OS-installed fonts. */
+  @font-face { font-family: "Inter"; font-weight: 400; font-style: normal;
+    src: url("../fonts/Inter-Regular.ttf") format("truetype"); }
+  @font-face { font-family: "Inter"; font-weight: 700; font-style: normal;
+    src: url("../fonts/Inter-Bold.ttf") format("truetype"); }
+  :root { --bg: #0B0F1A; --fg: #FFFFFF; --accent: #6C5CE7; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; }
+  body {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 2.4vh;
+    color: var(--fg);
+    font-family: Inter, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    background: var(--bg);
+    position: relative;
+  }
+  /* Animated mesh-gradient backdrop: two slow-drifting radial blobs over the base bg. A short loop,
+     but the motion reads as a polished end-card rather than a static card. */
+  .mesh {
+    position: absolute; inset: -20%; z-index: 0; filter: blur(40px); opacity: .85;
+    background:
+      radial-gradient(38vh 38vh at 28% 32%, color-mix(in srgb, var(--accent) 55%, transparent), transparent 70%),
+      radial-gradient(44vh 44vh at 74% 68%, color-mix(in srgb, var(--fg) 14%, transparent), transparent 70%);
+    animation: drift 6s ease-in-out infinite alternate;
+  }
+  .stage { position: relative; z-index: 1; display: flex; flex-direction: column;
+    align-items: center; gap: 2.4vh; text-align: center; }
+  .logo {
+    height: 18vh; max-width: 56vw; object-fit: contain;
+    opacity: 0; transform: scale(.84) translateY(8px);
+    animation: pop .9s cubic-bezier(.2,.7,.2,1) .15s forwards;
+    filter: drop-shadow(0 6px 24px rgba(0,0,0,.35));
+  }
+  .title {
+    font-size: 6.6vh; font-weight: 700; letter-spacing: -.01em;
+    opacity: 0; transform: translateY(22px);
+    animation: rise .9s cubic-bezier(.2,.7,.2,1) .4s forwards;
+    text-shadow: 0 2px 18px rgba(0,0,0,.35);
+  }
+  .subtitle {
+    font-size: 3.2vh; font-weight: 400; opacity: 0;
+    color: color-mix(in srgb, var(--fg) 82%, transparent);
+    transform: translateY(16px);
+    animation: rise .9s cubic-bezier(.2,.7,.2,1) .62s forwards;
+  }
+  .cta {
+    margin-top: 1.2vh; font-size: 3.0vh; font-weight: 700; padding: 1.6vh 3.4vh;
+    border-radius: 999px; color: #fff;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 92%, #fff 6%), var(--accent));
+    box-shadow: 0 8px 28px color-mix(in srgb, var(--accent) 45%, transparent);
+    opacity: 0; transform: translateY(14px) scale(.96);
+    animation: rise .9s cubic-bezier(.2,.7,.2,1) .84s forwards;
+  }
+  .url {
+    font-size: 2.6vh; font-weight: 500; opacity: 0;
+    color: color-mix(in srgb, var(--fg) 70%, transparent);
+    animation: fade .9s ease 1.05s forwards;
+  }
+  @keyframes pop  { to { opacity: 1; transform: scale(1) translateY(0); } }
+  @keyframes rise { to { opacity: 1; transform: translateY(0) scale(1); } }
+  @keyframes fade { to { opacity: 1; } }
+  @keyframes drift {
+    from { transform: translate(-3%, -2%) scale(1); }
+    to   { transform: translate(3%, 3%) scale(1.08); }
+  }
+</style>
+</head>
+<body>
+  <div class="mesh"></div>
+  <div class="stage">
+    <img class="logo" id="logo" alt="" hidden>
+    <h1 class="title" id="title"></h1>
+    <p class="subtitle" id="subtitle"></p>
+    <div class="cta" id="cta" hidden></div>
+    <div class="url" id="url" hidden></div>
+  </div>
+<script>
+  const q = new URLSearchParams(location.search);
+  const bg = q.get('bg'); if (bg) document.documentElement.style.setProperty('--bg', bg);
+  const fg = q.get('fg'); if (fg) document.documentElement.style.setProperty('--fg', fg);
+  const logo = q.get('logo');
+  if (logo) { const el = document.getElementById('logo'); el.src = logo; el.hidden = false; }
+  const set = (id, val) => {
+    const el = document.getElementById(id);
+    if (val) { el.textContent = val; el.hidden = false; } else { el.remove(); }
+  };
+  set('title', q.get('title') || '¡Gracias!');
+  set('subtitle', q.get('subtitle'));
+  set('cta', q.get('cta'));
+  set('url', q.get('url'));
+</script>
+</body>
+</html>

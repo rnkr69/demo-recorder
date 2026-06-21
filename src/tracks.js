@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 const ENGINE = dirname(dirname(fileURLToPath(import.meta.url))); // install root (src/..)
 export const bgDir = () => join(ENGINE, 'audio', 'bg');
+export const sfxDir = () => join(ENGINE, 'audio', 'sfx');
 
 const isAudio = (f) => /\.(wav|mp3|m4a|aac|ogg|flac)$/i.test(f);
 // Slug for matching: drop the extension and any leading track number ("4. Ambient Gold" →
@@ -46,4 +47,24 @@ export function resolveTrack(track) {
   if (hit) return join(bgDir(), hit.file);
   throw new Error(`pista de música no encontrada: "${track}". ` +
     `Bundled: ${bundled.map((b) => b.slug).join(', ') || '(ninguna)'} — o pasa una ruta a tu propio audio.`);
+}
+
+// Sound effects bundled WITH the engine (audio/sfx/), resolved the same way as music. Unlike
+// resolveTrack, SFX are OPTIONAL: this returns null when nothing matches (or the folder is empty),
+// so the SFX stage simply skips that cue instead of failing the whole render.
+export function bundledSfx() {
+  try { return readdirSync(sfxDir()).filter(isAudio).map((file) => ({ file, slug: slug(file) })); }
+  catch { return []; }
+}
+
+export function resolveSfx(name) {
+  if (!name) return null;
+  const direct = resolve(name);
+  if (existsSync(direct)) return direct;                     // a real path in the current project
+  const bundled = bundledSfx();
+  const want = slug(name);
+  const hit = bundled.find((b) => b.file === name)           // exact bundled filename
+    || bundled.find((b) => b.slug === want)                  // exact alias
+    || bundled.find((b) => b.slug.includes(want) || want.includes(b.slug)); // fuzzy/substring
+  return hit ? join(sfxDir(), hit.file) : null;
 }

@@ -4,7 +4,17 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { __test } from '../../src/run.js';
 
-const { subEnv, sliceSteps, norm, sessionOpts, preflight } = __test;
+const { subEnv, sliceSteps, norm, sessionOpts, preflight, runStep } = __test;
+
+// A driver stub that records (method, args) for every call, so we can assert how runStep maps a
+// declarative step to a Driver call without a real browser.
+function recorder() {
+  const calls = [];
+  const handler = {
+    get: (_t, prop) => (...args) => { calls.push([prop, ...args]); },
+  };
+  return { d: new Proxy({}, handler), calls };
+}
 
 test('subEnv substitutes ${VAR} from the environment', () => {
   process.env.DR_TEST_VAR = 'bar';
@@ -78,6 +88,48 @@ test('preflight warns on the 127.0.0.1 ↔ localhost cookie trap', (t) => {
   } finally {
     if (prev !== undefined) process.env.APP_URL = prev; else delete process.env.APP_URL;
   }
+});
+
+test('runStep rejects a step without exactly one action key', async () => {
+  const { d } = recorder();
+  await assert.rejects(() => runStep(d, {}), /exactly one action/);
+  await assert.rejects(() => runStep(d, { move: 'a', click: 'b' }), /exactly one action/);
+  await assert.rejects(() => runStep(d, { bogus: 1 }), /unknown step action/);
+});
+
+test('runStep maps move with bare string and pulls trail/overshoot opts out', async () => {
+  const { d, calls } = recorder();
+  await runStep(d, { move: 'btn' });
+  assert.deepEqual(calls[0], ['moveTo', 'btn', undefined, {}]);
+  calls.length = 0;
+  await runStep(d, { move: { sel: 'btn', ms: 500, trail: true, overshoot: true } });
+  assert.deepEqual(calls[0], ['moveTo', 'btn', 500, { trail: true, overshoot: true }]);
+});
+
+test('runStep threads click variants (variant/ripple/pop) into the click opts', async () => {
+  const { d, calls } = recorder();
+  await runStep(d, { click: { sel: 'x', variant: 'double', ripple: true, pop: true } });
+  assert.deepEqual(calls[0], ['click', 'x', { nav: false, ms: undefined, zoom: undefined, variant: 'double', ripple: true, pop: true }]);
+});
+
+test('runStep dispatches the new in-page effect steps', async () => {
+  const { d, calls } = recorder();
+  await runStep(d, { spotlight: { sel: 'table', dim: 0.5 } });
+  await runStep(d, { spotlightOff: true });
+  await runStep(d, { keycap: 'cmd+k' });
+  await runStep(d, { scroll: { sel: '#row', ms: 600 } });
+  assert.deepEqual(calls[0], ['spotlight', 'table', { dim: 0.5 }]);
+  assert.deepEqual(calls[1], ['spotlightOff']);
+  assert.deepEqual(calls[2], ['keycap', 'cmd+k', {}]);
+  assert.deepEqual(calls[3], ['scrollTo', '#row', { ms: 600 }]);
+});
+
+test('runStep accepts both `key` and `keycap`, string or {label}', async () => {
+  const { d, calls } = recorder();
+  await runStep(d, { key: 'enter' });
+  await runStep(d, { keycap: { label: 'shift+a', ms: 900 } });
+  assert.deepEqual(calls[0], ['keycap', 'enter', {}]);
+  assert.deepEqual(calls[1], ['keycap', 'shift+a', { label: 'shift+a', ms: 900 }]);
 });
 
 test('preflight does not warn when hosts match', (t) => {

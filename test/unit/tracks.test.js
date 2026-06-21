@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
-import { resolveTrack, bundledTracks, defaultTrack } from '../../src/tracks.js';
+import { resolveTrack, bundledTracks, defaultTrack, resolveSfx } from '../../src/tracks.js';
 
 test('bundledTracks lists committed music with kebab slugs', () => {
   const tracks = bundledTracks();
@@ -41,4 +41,17 @@ test('a real existing path passes through', () => {
 
 test('an unknown track throws, listing the bundled options', () => {
   assert.throws(() => resolveTrack('definitely-not-a-real-track-xyz'), /no encontrada/);
+});
+
+// resolveSfx mirrors resolveTrack but is OPTIONAL: it returns null instead of throwing, so an
+// unresolved SFX cue is skipped rather than failing the render.
+test('resolveSfx returns null for empty or unknown names (does not throw)', () => {
+  assert.equal(resolveSfx(''), null);
+  assert.equal(resolveSfx(undefined), null);
+  assert.equal(resolveSfx('definitely-not-a-real-sfx-xyz'), null);
+});
+
+test('resolveSfx passes a real existing path through', () => {
+  const self = fileURLToPath(import.meta.url);
+  assert.equal(resolveSfx(self), self);
 });
