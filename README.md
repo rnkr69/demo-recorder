@@ -66,6 +66,12 @@ npx playwright install chromium
 edge-tts) lives here once, and the global `demo-recorder` command runs from any folder. File-path
 arguments in your script resolve against **your current directory**, and outputs land there too.
 
+> **Per-OS install.** The native binaries (`ffmpeg-static`, the Playwright Chromium) are
+> platform-specific, so `node_modules` is **not** portable across operating systems. If the repo
+> lives on a shared drive (e.g. a Windows path used from WSL), install separately in each
+> environment — `rm -rf node_modules && npm install` (plus `npx playwright install chromium`) when
+> you switch OS. The CLI detects a cross-OS install and prints this exact fix before running.
+
 ## Quick start
 
 Verify your install against the bundled demo app:
@@ -288,6 +294,7 @@ install of each serves every project.
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | `demo-recorder: command not found` | the CLI isn't linked | run `npm link` in this repo, or call `node <path>/src/run.js` |
+| `⚠ ffmpeg no está instalado para esta plataforma` / `No such filter: 'drawtext'` / ffmpeg won't exec | `node_modules` installed under another OS (shared drive across Windows/WSL) | `rm -rf node_modules && npm install` in this environment |
 | `chromium.launch` "Executable doesn't exist" | browser revision mismatch | `npx playwright install chromium` |
 | Element not found in a widget | it lives in shadow DOM | use `host >>> inner` in `type`/`click`/`zoom` steps |
 | `waitFor` can't find it but `click` can (or vice-versa) | two selector engines | `waitFor` = Playwright CSS; the kit steps = `>>>` |

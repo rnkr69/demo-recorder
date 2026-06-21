@@ -34,6 +34,13 @@ npx playwright install chromium
 - **ffmpeg** se instala solo vía `ffmpeg-static` (no hace falta instalar nada del sistema).
 - **No necesita API keys**: la voz usa `edge-tts` (gratis).
 
+> **Instalación por SO.** Los binarios nativos (`ffmpeg-static`, el Chromium de Playwright) son
+> específicos de cada plataforma, así que `node_modules` **no es portable entre sistemas
+> operativos**. Si el repo está en una carpeta compartida (p. ej. un path de Windows usado desde
+> WSL), instala por separado en cada entorno: al cambiar de SO haz `rm -rf node_modules && npm
+> install` (y `npx playwright install chromium`). La CLI detecta una instalación de otro SO y
+> muestra este mismo arreglo antes de ejecutar.
+
 > **Dos formas de invocarlo (equivalentes):**
 > - **CLI global** (recomendada, funciona desde cualquier carpeta): `demo-recorder run mi.yml`
 > - **Local** (dentro de video_hero): `node src/run.js mi.yml`
@@ -351,6 +358,7 @@ demo-recorder clean --keep 1     # conserva solo la última grabación
 | Síntoma | Causa | Solución |
 |---|---|---|
 | El streaming aparece “de golpe” | `route.fulfill` no streamea | mock SSE con pausas + `redirect` (sección 5) |
+| `⚠ ffmpeg no está instalado para esta plataforma` / `No such filter: 'drawtext'` / ffmpeg no arranca | `node_modules` instalado en otro SO (carpeta compartida Windows/WSL) | `rm -rf node_modules && npm install` en este entorno |
 | `chromium.launch` “Executable doesn't exist” | revisión de navegador desfasada | `npx playwright install chromium` |
 | No encuentra el elemento de un widget | está en shadow DOM | usa `host >>> inner` en type/click/zoom |
 | `waitFor` no lo encuentra pero el click sí (o al revés) | dos sintaxis de selector | `waitFor` = CSS Playwright; resto = `>>>` |

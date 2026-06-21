@@ -9,6 +9,7 @@ import { runScript, runLogin, encodeOnly, probeScript } from '../src/run.js';
 import { autoContactSheet } from '../src/encode.js';
 import { cleanOut, framesDir, ensureDir } from '../src/layout.js';
 import { bundledTracks } from '../src/tracks.js';
+import { warnIfMisinstalled } from '../src/doctor.js';
 
 const PKG = dirname(dirname(fileURLToPath(import.meta.url))); // demo-recorder install root
 const argv = process.argv.slice(2);
@@ -55,6 +56,9 @@ Las rutas son relativas a tu carpeta actual. Ej:  demo-recorder probe .\\mi-demo
 
 async function main() {
   const { positionals, flags } = parse(argv.slice(1));
+  // Surface a cross-OS node_modules early (the recurring WSL/Windows trap) for the commands that
+  // actually drive the native binaries. Purely informational commands don't need them.
+  if (!['help', 'tracks', 'clean', undefined, '--help', '-h'].includes(cmd)) warnIfMisinstalled();
   switch (cmd) {
     case 'run': {
       if (!positionals[0]) throw new Error('falta <guion.yml>');
