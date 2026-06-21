@@ -109,4 +109,4 @@ encode:
   watermark: { text: 'demo-recorder', pos: br, opacity: 0.4 }
   progressBar: { color: '#6C5CE7', height: 5 }
   grade: { vignette: true, saturation: 1.06, contrast: 1.03 }
-  sfx: { gain: 0.7 }                     # bundled click/whoosh/key/chime
+  sfx: true                              # bundled click/whoosh/key/chime (conservative default gain)

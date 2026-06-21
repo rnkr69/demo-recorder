@@ -489,19 +489,21 @@ export async function reframe(input, output, aspect, { fps = 30, blur = 24, dim 
 // Default mapping from a recorder event `kind` to a bundled SFX name. `null` mutes a kind.
 // Resolution of the name → file (and dropping unresolved ones) happens in the caller via resolveSfx.
 const DEFAULT_SFX_MAP = {
-  click: 'click', nav: 'click', zoom: 'whoosh', zoomOut: 'whoosh',
-  keycap: 'key', keypress: 'key', success: 'chime',
-  // Muted by default: `spotlight` almost always rides along with a `zoomFit` (which already
-  // whooshes) → mapping it too would double the whoosh. `type`/`move`/`scroll` are too frequent.
-  spotlight: null, type: null, move: null, scroll: null,
+  click: 'click', nav: 'click', zoom: 'whoosh', keycap: 'key', keypress: 'key', success: 'chime',
+  // Muted by default so one gesture = one sound: `zoomOut` (the zoom-IN already whooshed — a second
+  // whoosh on reset doubles up, especially when a reset runs into the next zoom), `spotlight` (rides
+  // along with a `zoomFit`), and the high-frequency `type`/`move`/`scroll`.
+  zoomOut: null, spotlight: null, type: null, move: null, scroll: null,
 };
 
 // Pure: turn recorder events ([{t,kind,...}]) into SFX cues ([{name,delay,gain,kind}]). `offset`
 // shifts every cue on the timeline (e.g. a prepended intro). `map` overrides per kind (a name, a
-// {name,gain} object, or null to mute); `only` restricts to a kind whitelist. ffmpeg-free.
-export function mapSfx(events, { map = {}, gain = 1, offset = 0, only } = {}) {
+// {name,gain} object, or null to mute); `only` restricts to a kind whitelist. `gain` is the default
+// level (the bundled SFX are loud, so it's conservative). `minGap` drops a cue when the SAME sound
+// already fired within that many seconds (so one sound never double-hits). ffmpeg-free.
+export function mapSfx(events, { map = {}, gain = 0.45, offset = 0, only, minGap = 0.3 } = {}) {
   const m = { ...DEFAULT_SFX_MAP, ...map };
-  return (events || [])
+  const cues = (events || [])
     .map((e) => {
       const entry = Object.prototype.hasOwnProperty.call(m, e.kind)
         ? m[e.kind] : (e.kind === 'sfx' ? e.name : undefined);
@@ -512,7 +514,15 @@ export function mapSfx(events, { map = {}, gain = 1, offset = 0, only } = {}) {
       return { name, delay: Math.max(0, e.t + offset), gain: g, kind: e.kind };
     })
     .filter(Boolean)
-    .filter((c) => !only || only.includes(c.kind));
+    .filter((c) => !only || only.includes(c.kind))
+    .sort((a, b) => a.delay - b.delay);
+  // Cooldown per sound: skip a cue if the same sound is still effectively playing/just played.
+  const last = {};
+  return cues.filter((c) => {
+    if (last[c.name] != null && c.delay - last[c.name] < minGap) return false;
+    last[c.name] = c.delay;
+    return true;
+  });
 }
 
 // Lay short one-shot SFX over a finished video's audio, synced to the cues ([{path,delay,gain}]).
@@ -744,7 +754,9 @@ export async function addProgressBar(input, output, { color = '#6C5CE7', height 
   const hasA = await probeHasAudio(input);
   const y = pos === 'top' ? '0' : `ih-${height}`;
   const col = String(color).replace('#', '0x');
-  const vf = `drawbox=x=0:y=${y}:w='iw*min(t/${dur.toFixed(3)}\\,1)':h=${height}:color=${col}@${opacity}:t=fill`;
+  // drawbox evaluates w per frame; t/dur ∈ [0,1] over the clip, so the bar grows L→R. (No comma in
+  // the expression — escaping it inside the filtergraph breaks the parse and the bar stays full.)
+  const vf = `drawbox=x=0:y=${y}:w=iw*t/${dur.toFixed(3)}:h=${height}:color=${col}@${opacity}:t=fill`;
   const aargs = hasA ? ['-c:a', 'copy'] : [];
   return run(['-y', '-i', input, '-vf', vf, '-r', String(fps),
     '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '20', '-movflags', '+faststart', ...aargs, output]);
