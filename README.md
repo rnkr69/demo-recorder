@@ -12,8 +12,8 @@ Record **deterministic** hero/demo videos of any web app — smooth, repeatable,
 > the effect toolset: a match-cut intro (mesh + typewriter), spotlight, on-screen keycaps, callouts,
 > a highlight sweep, karaoke captions, chapter lower-thirds, ducked music, SFX and an outro card. 🎬
 
-https://github.com/user-attachments/assets/fd43a9ea-c4ba-47b0-9689-1df256cf58b1
 
+https://github.com/user-attachments/assets/74a8e540-b7ca-4c0d-ae18-473583e22014
 
 
 Recording product demos by hand (OBS and friends) never looks polished: the mouse jitters, timing is
