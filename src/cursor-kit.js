@@ -42,7 +42,7 @@ export function cursorKit() {
   // each frame so its children render at true viewport pixels (the same space getBoundingClientRect
   // reports). A ref-counted rAF loop keeps the counter-transform current ONLY while something is on
   // the layer; idle cost is zero when nothing is showing.
-  let layer, raf = 0;
+  let layer, raf = 0, annoSeq = 0;
   const active = new Set(); // live overlay updaters; loop runs while non-empty
   const overlay = () => {
     if (layer && document.documentElement.contains(layer)) return layer;
@@ -265,6 +265,140 @@ export function cursorKit() {
       s.mask.style.boxShadow = '0 0 0 9999px rgba(0,0,0,0)';
       return wait(ms).then(() => { try { s.unreg(); s.mask.remove(); } catch { /* already gone */ } });
     },
+    // Callout/annotation anchored to an element: a box/circle outline, or an arrow pointing at it
+    // from `side` (top|bottom|left|right), with an optional text label. Lives on the overlay and
+    // re-anchors every frame, so it tracks the element under zoom (like spotlight). Multiple
+    // annotations can coexist; annotateOff() / reset() clear them all.
+    annotate(sel, opts = {}) {
+      const shape = opts.shape || 'box';
+      const color = opts.color || '#FFCC00';
+      const text = opts.text || '';
+      const side = opts.side || 'top';
+      const ms = opts.ms ?? 420;
+      const pad = opts.pad ?? 8;
+      const el = resolveEl(sel);
+      if (!el) throw new Error('element not found: ' + sel);
+      if (!this._annos) this._annos = [];
+      const nodes = [];
+      let shapeEl = null, svg = null, line = null, label = null;
+      if (shape === 'box' || shape === 'circle') {
+        shapeEl = document.createElement('div');
+        shapeEl.style.cssText =
+          `position:absolute;pointer-events:none;box-sizing:border-box;border:3px solid ${color};` +
+          `border-radius:${shape === 'circle' ? '50%' : '10px'};` +
+          `box-shadow:0 0 0 2px rgba(0,0,0,.22),0 0 16px ${color}55`;
+        overlay().appendChild(shapeEl); nodes.push(shapeEl);
+        shapeEl.animate([{ opacity: 0, transform: 'scale(.92)' }, { opacity: 1, transform: 'scale(1)' }],
+          { duration: ms, easing: 'cubic-bezier(.2,.7,.2,1)', fill: 'backwards' });
+      } else if (shape === 'arrow') {
+        const NS = 'http://www.w3.org/2000/svg';
+        svg = document.createElementNS(NS, 'svg');
+        svg.setAttribute('width', '100%'); svg.setAttribute('height', '100%');
+        svg.style.cssText = 'position:absolute;inset:0;overflow:visible';
+        const id = 'ah' + (annoSeq++);
+        svg.innerHTML =
+          `<defs><marker id="${id}" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto">` +
+          `<path d="M0,0 L8,3 L0,6 Z" fill="${color}"/></marker></defs>` +
+          `<line stroke="${color}" stroke-width="3.5" stroke-linecap="round" marker-end="url(#${id})"/>`;
+        overlay().appendChild(svg); line = svg.querySelector('line'); nodes.push(svg);
+      }
+      if (text) {
+        label = document.createElement('div');
+        label.textContent = text;
+        label.style.cssText =
+          'position:absolute;padding:7px 12px;border-radius:8px;font-family:Inter,system-ui,sans-serif;' +
+          `font-size:18px;font-weight:600;color:#101216;background:${color};white-space:nowrap;` +
+          'box-shadow:0 6px 18px rgba(0,0,0,.35)';
+        overlay().appendChild(label); nodes.push(label);
+        label.animate([{ opacity: 0 }, { opacity: 1 }], { duration: ms, fill: 'backwards' });
+      }
+      const place = () => {
+        const r = el.getBoundingClientRect();
+        if (shapeEl) {
+          shapeEl.style.left = (r.left - pad) + 'px'; shapeEl.style.top = (r.top - pad) + 'px';
+          shapeEl.style.width = (r.width + 2 * pad) + 'px'; shapeEl.style.height = (r.height + 2 * pad) + 'px';
+        }
+        const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+        const gap = 12, len = 70;
+        let ex = cx, ey = cy, sx = cx, sy = cy;
+        if (side === 'top') { ey = r.top - gap; sy = ey - len; }
+        else if (side === 'bottom') { ey = r.bottom + gap; sy = ey + len; }
+        else if (side === 'left') { ex = r.left - gap; sx = ex - len; sy = ey = cy; }
+        else { ex = r.right + gap; sx = ex + len; sy = ey = cy; } // right
+        if (line) { line.setAttribute('x1', sx); line.setAttribute('y1', sy); line.setAttribute('x2', ex); line.setAttribute('y2', ey); }
+        if (label) {
+          const lw = label.offsetWidth, lh = label.offsetHeight;
+          let px, py;
+          if (shape === 'arrow') {
+            if (side === 'top') { px = sx - lw / 2; py = sy - lh - 4; }
+            else if (side === 'bottom') { px = sx - lw / 2; py = sy + 4; }
+            else if (side === 'left') { px = sx - lw - 4; py = sy - lh / 2; }
+            else { px = sx + 4; py = sy - lh / 2; }
+          } else { px = cx - lw / 2; py = r.top - pad - lh - 8; }
+          label.style.left = px + 'px'; label.style.top = py + 'px';
+        }
+      };
+      place();
+      const unreg = register(place);
+      if (line) {
+        const len2 = Math.hypot((+line.getAttribute('x2')) - (+line.getAttribute('x1')),
+          (+line.getAttribute('y2')) - (+line.getAttribute('y1')));
+        line.style.strokeDasharray = len2;
+        line.animate([{ strokeDashoffset: len2 }, { strokeDashoffset: 0 }],
+          { duration: ms, easing: 'cubic-bezier(.2,.7,.2,1)', fill: 'backwards' });
+      }
+      this._annos.push({ nodes, unreg });
+      return wait(opts.hold ? ms + opts.hold : ms);
+    },
+    annotateOff(ms = 200) {
+      const annos = this._annos || [];
+      this._annos = [];
+      annos.forEach((a) => {
+        if (!a.nodes.length) { try { a.unreg(); } catch { /* gone */ } return; }
+        let pending = a.nodes.length;
+        const finish = () => { if (--pending <= 0) { try { a.unreg(); } catch { /* gone */ } } };
+        a.nodes.forEach((n) => {
+          try {
+            const an = n.animate([{ opacity: 1 }, { opacity: 0 }], { duration: ms, fill: 'forwards' });
+            an.onfinish = () => { try { n.remove(); } catch { /* gone */ } finish(); };
+            an.oncancel = () => { try { n.remove(); } catch { /* gone */ } finish(); };
+          } catch { try { n.remove(); } catch { /* gone */ } finish(); }
+        });
+      });
+      return wait(ms);
+    },
+    // Animated text highlight: a marker band (or underline) wiped left→right over the element. Kept
+    // until annotateOff()/reset() (it's stored alongside annotations). `mode`: 'marker' | 'underline'.
+    highlight(sel, opts = {}) {
+      const color = opts.color || 'rgba(255,214,0,.45)';
+      const ms = opts.ms ?? 520;
+      const pad = opts.pad ?? 2;
+      const isUnder = opts.mode === 'underline';
+      const el = resolveEl(sel);
+      if (!el) throw new Error('element not found: ' + sel);
+      if (!this._annos) this._annos = [];
+      const band = document.createElement('div');
+      band.style.cssText =
+        `position:absolute;pointer-events:none;background:${color};border-radius:4px;` +
+        'transform-origin:left center;' + (isUnder ? '' : 'mix-blend-mode:multiply;');
+      overlay().appendChild(band);
+      const place = () => {
+        const r = el.getBoundingClientRect();
+        if (isUnder) {
+          band.style.left = r.left + 'px'; band.style.top = (r.bottom - 2) + 'px';
+          band.style.width = r.width + 'px'; band.style.height = '6px';
+        } else {
+          band.style.left = (r.left - pad) + 'px'; band.style.top = (r.top - pad) + 'px';
+          band.style.width = (r.width + 2 * pad) + 'px'; band.style.height = (r.height + 2 * pad) + 'px';
+        }
+      };
+      place();
+      const unreg = register(place);
+      band.animate([{ transform: 'scaleX(0)' }, { transform: 'scaleX(1)' }],
+        { duration: ms, easing: 'cubic-bezier(.4,0,.2,1)', fill: 'forwards' });
+      this._annos.push({ nodes: [band], unreg });
+      return wait(ms);
+    },
     // Smoothly scroll the page so `sel` is centered (a real scroll easing — the hard cut/jump is the
     // usual tell that a demo is scripted). rAF-tweened so the duration is controllable.
     async scrollToSel(sel, opts = {}) {
@@ -319,6 +453,7 @@ export function cursorKit() {
     reset(ms = 700) {
       const el = document.documentElement;
       this.spotlightOff(Math.min(ms, 240));
+      this.annotateOff(Math.min(ms, 200));
       el.style.transformOrigin = '0 0';
       el.style.transition = `transform ${ms}ms cubic-bezier(.4,0,.2,1)`;
       el.style.transform = 'translate(0px, 0px) scale(1)';

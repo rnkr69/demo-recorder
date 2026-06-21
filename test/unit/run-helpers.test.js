@@ -132,6 +132,18 @@ test('runStep accepts both `key` and `keycap`, string or {label}', async () => {
   assert.deepEqual(calls[1], ['keycap', 'shift+a', { label: 'shift+a', ms: 900 }]);
 });
 
+test('runStep dispatches the phase-2 steps (annotate/highlight/chapter)', async () => {
+  const { d, calls } = recorder();
+  await runStep(d, { annotate: { sel: 'btn', shape: 'arrow', text: 'aquí', side: 'top' } });
+  await runStep(d, { annotateOff: true });
+  await runStep(d, { highlight: { sel: 'p', mode: 'underline' } });
+  await runStep(d, { chapter: '1. Pregunta' });
+  assert.deepEqual(calls[0], ['annotate', 'btn', { shape: 'arrow', text: 'aquí', side: 'top' }]);
+  assert.deepEqual(calls[1], ['annotateOff']);
+  assert.deepEqual(calls[2], ['highlight', 'p', { mode: 'underline' }]);
+  assert.deepEqual(calls[3], ['chapter', '1. Pregunta']);
+});
+
 test('preflight does not warn when hosts match', (t) => {
   const warn = t.mock.method(console, 'warn', () => {});
   const prev = process.env.APP_URL;

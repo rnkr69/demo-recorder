@@ -499,6 +499,162 @@ export async function muxSfx(input, output, cues, { fps = 30 } = {}) {
     '-c:a', 'aac', '-b:a', '160k', '-t', dur.toFixed(3), output]);
 }
 
+// ---- Watermark ------------------------------------------------------------
+
+const WM_POS = { br: 3, bl: 1, tr: 9, tl: 7 };       // libass numpad alignment per corner
+const WM_OVERLAY = (m) => ({ br: `W-w-${m}:H-h-${m}`, bl: `${m}:H-h-${m}`, tr: `W-w-${m}:${m}`, tl: `${m}:${m}` });
+
+// Burn a corner watermark/bug onto a finished video: a logo PNG (overlay, alpha-scaled) OR text
+// (libass via buildPosAss). Spans the whole clip. pos: br|bl|tr|tl. Keeps the source audio.
+export async function burnWatermark(input, output, opts = {}) {
+  const inAbs = resolve(input), outAbs = resolve(output);
+  const { text = '', logo, pos = 'br', opacity = 0.5, margin = 28, color = '#FFFFFF' } = opts;
+  const size = await probeSize(inAbs);
+  const hasA = await probeHasAudio(inAbs);
+  if (logo) {
+    const at = (WM_OVERLAY(margin))[pos] || (WM_OVERLAY(margin)).br;
+    const filter = `[1:v]format=rgba,colorchannelmixer=aa=${opacity}[wm];[0:v][wm]overlay=${at}[v]`;
+    const map = hasA ? ['-map', '[v]', '-map', '0:a?'] : ['-map', '[v]'];
+    const ac = hasA ? ['-c:a', 'aac', '-b:a', '160k'] : [];
+    return run(['-y', '-i', inAbs, '-i', resolve(logo), '-filter_complex', filter, ...map, '-r', '30',
+      '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '20', '-movflags', '+faststart', ...ac, outAbs]);
+  }
+  const fs = opts.fontSize || Math.round(size.h * 0.03);
+  const an = WM_POS[pos] || 3;
+  const x = (pos === 'br' || pos === 'tr') ? size.w - margin : margin;
+  const y = (pos === 'br' || pos === 'bl') ? size.h - margin : margin;
+  const dur = await probeDuration(inAbs);
+  const assPath = resolve(outAbs.replace(/\.\w+$/, '') + '.wm.ass');
+  writeFileSync(assPath, buildPosAss([{ text, x, y, an, fontSize: fs, color,
+    alpha: Math.round((1 - opacity) * 255), bold: true, outline: 1, outlineColor: '#000000' }],
+  { width: size.w, height: size.h, duration: dur }), 'utf8');
+  const copied = [];
+  for (const f of [regularFont(), boldFont()]) {
+    const d = join(dirname(assPath), basename(f));
+    try { copyFileSync(f, d); copied.push(d); } catch { /* ignore */ }
+  }
+  const aargs = hasA ? ['-c:a', 'copy'] : [];
+  await run(['-y', '-i', inAbs, '-vf', `ass=${basename(assPath)}:fontsdir=.`, '-r', '30',
+    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '20', '-movflags', '+faststart', ...aargs, outAbs],
+  { cwd: dirname(assPath) });
+  try { rmSync(assPath, { force: true }); } catch { /* artifact */ }
+  for (const c of copied) { try { rmSync(c, { force: true }); } catch { /* font copy */ } }
+  return outAbs;
+}
+
+// ---- Lower-thirds / chapter titles ----------------------------------------
+
+// Build an .ass with an animated lower-third strip per chapter: a libass box (bottom-left) that
+// slides in from the left and fades. Chapter events ([{t,text}]) span until the next chapter (or
+// +`hold` seconds, default 3) — reuses toCues for the spans. Times are on the FINAL timeline.
+export function buildLowerThirds(events, duration, size = {}, style = {}) {
+  const s = {
+    font: defaultFontName(), fontSize: 30, color: '#FFFFFF', boxColor: '#111418', boxAlpha: 0x24,
+    marginL: 56, marginV: 70, boxPad: 16, fadeIn: 220, fadeOut: 220, slide: 44, hold: 3.0, playResY: 800,
+    ...style,
+  };
+  const refH = s.playResY;
+  const refW = Math.round(((size.w || 1280) / (size.h || 800)) * refH);
+  const primary = hexToAss(s.color, 0);
+  const back = hexToAss(s.boxColor, s.boxAlpha);
+  const cues = toCues((events || []).map((e) => ({ t: e.t, text: e.text })), duration)
+    .map((c) => ({ ...c, end: s.hold ? Math.min(c.end, c.start + s.hold) : c.end }))
+    .filter((c) => c.end > c.start);
+  const x = s.marginL, y = refH - s.marginV;
+  const head =
+`[Script Info]
+ScriptType: v4.00+
+PlayResX: ${refW}
+PlayResY: ${refH}
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: LT,${s.font},${s.fontSize},${primary},&H000000FF,${back},${back},-1,0,0,0,100,100,0,0,3,${s.boxPad},0,1,${s.marginL},64,${s.marginV},1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+`;
+  const lines = cues.map((c) => {
+    const durMs = Math.max(0, (c.end - c.start) * 1000);
+    const fin = Math.round(Math.min(s.fadeIn, durMs));
+    const fout = Math.round(Math.min(s.fadeOut, Math.max(0, durMs - fin)));
+    const tags = `{\\fad(${fin},${fout})\\move(${x - s.slide},${y},${x},${y},0,${fin})}`;
+    const text = String(c.text).replace(/\r?\n/g, '\\N');
+    return `Dialogue: 0,${assTime(c.start)},${assTime(c.end)},LT,,0,0,0,,${tags}${text}`;
+  });
+  return head + lines.join('\n') + '\n';
+}
+
+// Burn animated lower-thirds onto a video from chapter events (already on the final timeline).
+export async function burnLowerThirds(input, output, { events, style } = {}) {
+  const inAbs = resolve(input), outAbs = resolve(output);
+  const [dur, size] = await Promise.all([probeDuration(inAbs), probeSize(inAbs)]);
+  const assPath = resolve(outAbs.replace(/\.\w+$/, '') + '.lt.ass');
+  writeFileSync(assPath, buildLowerThirds(events || [], dur, size, style || {}), 'utf8');
+  const copied = [];
+  for (const f of [regularFont(), boldFont()]) {
+    const d = join(dirname(assPath), basename(f));
+    try { copyFileSync(f, d); copied.push(d); } catch { /* ignore */ }
+  }
+  const hasA = await probeHasAudio(inAbs);
+  const aargs = hasA ? ['-c:a', 'copy'] : [];
+  await run(['-y', '-i', inAbs, '-vf', `ass=${basename(assPath)}:fontsdir=.`, '-r', '30',
+    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '20', '-movflags', '+faststart', ...aargs, outAbs],
+  { cwd: dirname(assPath) });
+  try { rmSync(assPath, { force: true }); } catch { /* artifact */ }
+  for (const c of copied) { try { rmSync(c, { force: true }); } catch { /* font copy */ } }
+  return outAbs;
+}
+
+// ---- Match-cut (xfade join) -----------------------------------------------
+
+// Pure: xfade offsets for an N-clip chain crossfaded by `d` seconds at each boundary. offset_i is
+// where clip i+1's transition begins on the running composed timeline (overlap accounted for).
+export function xfadeOffsets(durs, d) {
+  const offs = [];
+  let acc = durs[0];
+  for (let i = 1; i < durs.length; i++) { offs.push(+(acc - d).toFixed(3)); acc = acc + durs[i] - d; }
+  return offs;
+}
+
+// Join clips with an xfade transition at each boundary (zoom-dissolve "match cut" instead of a hard
+// cut). All parts must share WxH/fps. Crossfades audio with acrossfade when every part has it; else
+// video-only (a later music bed re-adds audio).
+export async function xfadeJoin(parts, output, { duration = 0.5, transition = 'fade', fps = 30 } = {}) {
+  if (!parts || parts.length < 2) throw new Error('xfadeJoin needs ≥2 parts');
+  const durs = await Promise.all(parts.map(probeDuration));
+  const has = await Promise.all(parts.map(probeHasAudio));
+  const withAudio = has.every(Boolean);
+  const offs = xfadeOffsets(durs, duration);
+  const inputs = parts.flatMap((p) => ['-i', p]);
+  const norm = parts.map((_, i) => `[${i}:v]setsar=1,fps=${fps},format=yuv420p[n${i}]`);
+  const vchain = [];
+  let prev = '[n0]';
+  for (let i = 1; i < parts.length; i++) {
+    const out = i === parts.length - 1 ? '[v]' : `[x${i}]`;
+    vchain.push(`${prev}[n${i}]xfade=transition=${transition}:duration=${duration}:offset=${offs[i - 1]}${out}`);
+    prev = out;
+  }
+  if (withAudio) {
+    const achain = [];
+    let ap = '[0:a]';
+    for (let i = 1; i < parts.length; i++) {
+      const out = i === parts.length - 1 ? '[a]' : `[xa${i}]`;
+      achain.push(`${ap}[${i}:a]acrossfade=d=${duration}:c1=tri:c2=tri${out}`);
+      ap = out;
+    }
+    const filter = [...norm, ...vchain, ...achain].join(';');
+    return run(['-y', ...inputs, '-filter_complex', filter, '-map', '[v]', '-map', '[a]', '-r', String(fps),
+      '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '20', '-movflags', '+faststart',
+      '-c:a', 'aac', '-b:a', '160k', output]);
+  }
+  const filter = [...norm, ...vchain].join(';');
+  return run(['-y', ...inputs, '-filter_complex', filter, '-map', '[v]', '-r', String(fps),
+    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '20', '-movflags', '+faststart', output]);
+}
+
 // Build a contact sheet, auto-spreading frames over the clip when `times` isn't given.
 // Output defaults to contact.png next to the video. Returns { out, times }.
 export async function autoContactSheet(input, { times, out, cols = 4 } = {}) {

@@ -16,7 +16,7 @@ import { record, saveAuth, openSession } from './recorder.js';
 import {
   toMp4, toGif, speedupIdle, writeSrt, burnSubs,
   buildIntroFfmpeg, concatVideos, probeSize, probeDuration, addMusicBed, toMp4Silent,
-  reframe, mapSfx, muxSfx,
+  reframe, mapSfx, muxSfx, burnWatermark, burnLowerThirds, xfadeJoin,
 } from './encode.js';
 import { narrateVideo, getNarration, musicEnvelope } from './tts.js';
 import { rawDir, workDir, ensureDir, pruneRaw, wipeWork } from './layout.js';
@@ -66,6 +66,10 @@ async function runStep(d, step) {
     case 'key':
     case 'keycap':    return d.keycap(typeof arg === 'string' ? arg : (arg && (arg.label || arg.text)), (arg && typeof arg === 'object') ? arg : {});
     case 'scroll':    { const { sel, ...o } = norm(arg); return d.scrollTo(sel, o); }
+    case 'annotate':  { const { sel, ...o } = norm(arg); return d.annotate(sel, o); }
+    case 'annotateOff': return d.annotateOff();
+    case 'highlight': { const { sel, ...o } = norm(arg); return d.highlight(sel, o); }
+    case 'chapter':   return d.chapter(typeof arg === 'string' ? arg : (arg && arg.text));
     case 'caption':   return d.caption(typeof arg === 'string' ? arg : (arg && arg.text));
     case 'waitFor':   { const o = norm(arg); return d.waitFor(o.sel, o.opts || {}); }
     default:          throw new Error('unknown step action: ' + action);
@@ -133,6 +137,9 @@ async function recordIntroHtml(intro, spec) {
   if (intro.subtitle) params.set('subtitle', intro.subtitle);
   if (intro.bg) params.set('bg', intro.bg);
   if (intro.fg) params.set('fg', intro.fg);
+  if (intro.accent) params.set('accent', intro.accent);
+  if (intro.template) params.set('template', intro.template); // minimal | bold | terminal | mesh
+  if (intro.typewriter) params.set('typewriter', '1');
   if (intro.logo) params.set('logo', pathToFileURL(resolve(intro.logo)).href);
   const url = `${tpl}?${params.toString()}`;
 
@@ -212,12 +219,12 @@ async function applyEncode(spec, video) {
   if (e.gif) { await toGif(video, e.gif, e.gifopts || {}); console.log('GIF:', e.gif); }
 
   // ---- Final composition: intro/outro bookends → ONE continuous music bed → step-synced SFX.
+  let introDur = 0; // hoisted: the lower-thirds/SFX stages shift chapter/event times by the intro length
   const bookend = e.intro || e.outro;
   if (bookend || music || e.sfx) {
     // The finished demo to build on: explicit prependTo/appendTo, else the last meaningful output.
     let target = resolve(e.intro?.prependTo || e.outro?.appendTo
       || e.narrateMp4 || e.captionsMp4 || e.idleMp4 || e.mp4 || video);
-    let introDur = 0;
 
     const work = () => ensureDir(workDir(spec.out));
     const tmpIn = (p, tag) => join(work(), basename(p).replace(/\.(\w+)$/, `.${tag}.$1`));
@@ -235,7 +242,10 @@ async function applyEncode(spec, video) {
       if (e.outro) { outroMp4 = await buildOutroClip(spec, e.outro, target); parts.push(outroMp4); }
       const more = left.music || left.sfx;
       const out = more ? tmpIn(result, 'novol') : result;
-      await concatVideos(parts, out);
+      // Match-cut: dissolve/zoom the boundaries (intro→demo→outro) instead of a hard cut, when asked.
+      const xf = e.transition || (e.intro && e.intro.matchCut ? {} : null);
+      if (xf && parts.length >= 2) await xfadeJoin(parts, out, { duration: xf.duration, transition: xf.transition });
+      else await concatVideos(parts, out);
       if (e.intro && !e.intro.out) { try { unlinkSync(introMp4); } catch { /* drop intro clip */ } }
       if (e.outro && !e.outro.out) { try { unlinkSync(outroMp4); } catch { /* drop outro clip */ } }
       target = out;
@@ -281,6 +291,34 @@ async function applyEncode(spec, video) {
     }
 
     e._composed = result;
+  }
+
+  // ---- Lower-thirds (chapter titles) + corner watermark, burned onto the composed final so they
+  //      span intro+demo+outro and any reframe inherits them. Chapter times shift by the intro. ----
+  let finalVideo = e._composed || e.narrateMp4 || e.captionsMp4 || e.idleMp4 || e.mp4;
+  finalVideo = finalVideo ? resolve(finalVideo) : null;
+  if ((e.lowerThirds || e.watermark) && finalVideo) {
+    const tmpIn = (p, tag) => join(ensureDir(workDir(spec.out)), basename(p).replace(/\.(\w+)$/, `.${tag}.$1`));
+    if (e.lowerThirds) {
+      const lt = (typeof e.lowerThirds === 'object') ? e.lowerThirds : {};
+      let evs = [];
+      try { evs = JSON.parse(readFileSync(`${video}.events.json`, 'utf8')).events; } catch { /* no events sidecar */ }
+      const chapters = (evs || []).filter((x) => x.kind === 'chapter').map((c) => ({ t: c.t + introDur, text: c.text }));
+      if (chapters.length) {
+        const tmp = tmpIn(finalVideo, 'lt');
+        await burnLowerThirds(finalVideo, tmp, { events: chapters, style: lt.style || lt });
+        renameSync(tmp, finalVideo);
+        console.log('LOWER-THIRDS:', finalVideo, `(${chapters.length})`);
+      }
+    }
+    if (e.watermark) {
+      const wm = (typeof e.watermark === 'object') ? e.watermark : { text: String(e.watermark) };
+      const tmp = tmpIn(finalVideo, 'wm');
+      await burnWatermark(finalVideo, tmp, wm);
+      renameSync(tmp, finalVideo);
+      console.log('WATERMARK:', finalVideo);
+    }
+    e._composed = finalVideo;
   }
 
   // ---- Extra aspect-ratio reframes (1:1, 9:16, …) from the finished video, for social. ----
@@ -395,7 +433,7 @@ async function diagnose(page, action, arg) {
   const sel = (typeof arg === 'string') ? arg : (arg && (arg.sel || arg.url));
   const lines = [`URL: ${page.url()}`];
   try { lines.push(`título: ${await page.title()}`); } catch { /* ignore */ }
-  if (sel && ['type', 'click', 'move', 'zoomTo', 'zoomFit', 'spotlight', 'scroll'].includes(action)) {
+  if (sel && ['type', 'click', 'move', 'zoomTo', 'zoomFit', 'spotlight', 'scroll', 'annotate', 'highlight'].includes(action)) {
     const c = await page.evaluate(browserDescribeChain, sel).catch(() => null);
     if (c) lines.push('selector (kit `>>>`):\n' + c);
   } else if (sel && action === 'waitFor') {

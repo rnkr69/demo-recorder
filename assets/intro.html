@@ -10,19 +10,22 @@
     src: url("../fonts/Inter-Regular.ttf") format("truetype"); }
   @font-face { font-family: "Inter"; font-weight: 700; font-style: normal;
     src: url("../fonts/Inter-Bold.ttf") format("truetype"); }
-  :root { --bg: #0B0F1A; --fg: #FFFFFF; }
+  :root { --bg: #0B0F1A; --fg: #FFFFFF; --accent: #6C5CE7; }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { width: 100%; height: 100%; overflow: hidden; }
   body {
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     gap: 2.2vh;
-    background:
-      radial-gradient(120vh 120vh at 50% 38%, color-mix(in srgb, var(--bg) 78%, #ffffff 8%), var(--bg) 70%),
-      var(--bg);
+    background: var(--bg);
     color: var(--fg);
     font-family: Inter, system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
+    position: relative;
   }
+  /* whole-card breathing zoom, gives the synthetic recording some life + a push toward the demo. */
+  body { animation: push 3s ease-out forwards; }
+  .stage { position: relative; z-index: 1; display: flex; flex-direction: column;
+    align-items: center; gap: 2.2vh; text-align: center; }
   .logo {
     height: 22vh; max-width: 60vw; object-fit: contain;
     opacity: 0; transform: scale(.82) translateY(8px);
@@ -30,36 +33,106 @@
     filter: drop-shadow(0 6px 24px rgba(0,0,0,.35));
   }
   .title {
-    font-size: 7.4vh; font-weight: 700; letter-spacing: -.01em; text-align: center;
+    font-size: 7.4vh; font-weight: 700; letter-spacing: -.01em;
     opacity: 0; transform: translateY(22px);
     animation: rise .9s cubic-bezier(.2,.7,.2,1) .45s forwards;
     text-shadow: 0 2px 18px rgba(0,0,0,.35);
   }
   .subtitle {
-    font-size: 3.4vh; font-weight: 400; opacity: 0; text-align: center;
+    font-size: 3.4vh; font-weight: 400; opacity: 0;
     color: color-mix(in srgb, var(--fg) 82%, transparent);
     transform: translateY(16px);
     animation: rise .9s cubic-bezier(.2,.7,.2,1) .7s forwards;
   }
-  /* whole-card breathing zoom, gives the synthetic recording some life */
-  .stage { display: contents; }
-  body { animation: push 3s ease-out forwards; }
+  .caret { display: none; }
+
+  /* ---- template: minimal (default) — soft radial glow ---- */
+  body.minimal {
+    background:
+      radial-gradient(120vh 120vh at 50% 38%, color-mix(in srgb, var(--bg) 78%, #ffffff 8%), var(--bg) 70%),
+      var(--bg);
+  }
+
+  /* ---- template: mesh — animated mesh-gradient backdrop ---- */
+  body.mesh .mesh {
+    position: absolute; inset: -20%; z-index: 0; filter: blur(40px); opacity: .85;
+    background:
+      radial-gradient(40vh 40vh at 28% 30%, color-mix(in srgb, var(--accent) 55%, transparent), transparent 70%),
+      radial-gradient(46vh 46vh at 74% 70%, color-mix(in srgb, var(--fg) 14%, transparent), transparent 70%);
+    animation: drift 6s ease-in-out infinite alternate;
+  }
+
+  /* ---- template: bold — heavy type over an accent wash ---- */
+  body.bold {
+    background:
+      linear-gradient(160deg, color-mix(in srgb, var(--accent) 26%, var(--bg)), var(--bg) 60%);
+  }
+  body.bold .title { font-size: 9vh; font-weight: 700; letter-spacing: -.02em; }
+  body.bold .subtitle {
+    font-size: 3.2vh; font-weight: 700; text-transform: uppercase; letter-spacing: .16em;
+    color: var(--accent);
+  }
+
+  /* ---- template: terminal — monospace prompt with a blinking caret ---- */
+  body.terminal {
+    background: #07090d;
+    font-family: ui-monospace, "Cascadia Code", "Consolas", "Courier New", monospace;
+  }
+  body.terminal .stage { align-items: flex-start; text-align: left; padding-left: 8vw; }
+  body.terminal .title { font-size: 5.6vh; font-weight: 700; }
+  body.terminal .title::before { content: "$ "; color: var(--accent); }
+  body.terminal .subtitle { font-size: 2.8vh; color: #8b9bb4; }
+  body.terminal .caret {
+    display: inline-block; width: .55ch; height: 1em; margin-left: 2px;
+    background: var(--accent); vertical-align: -0.12em; animation: blink 1s steps(1) infinite;
+  }
+
   @keyframes pop  { to { opacity: 1; transform: scale(1) translateY(0); } }
   @keyframes rise { to { opacity: 1; transform: translateY(0); } }
-  @keyframes push { from { zoom: 1; } to { zoom: 1.04; } }
+  @keyframes push { from { zoom: 1; } to { zoom: 1.05; } }
+  @keyframes drift { from { transform: translate(-3%, -2%) scale(1); } to { transform: translate(3%, 3%) scale(1.08); } }
+  @keyframes blink { 50% { opacity: 0; } }
 </style>
 </head>
 <body>
-  <img class="logo" id="logo" alt="" hidden>
-  <h1 class="title" id="title"></h1>
-  <p class="subtitle" id="subtitle"></p>
+  <div class="mesh"></div>
+  <div class="stage">
+    <img class="logo" id="logo" alt="" hidden>
+    <h1 class="title"><span id="title"></span><span class="caret" id="caret"></span></h1>
+    <p class="subtitle" id="subtitle"></p>
+  </div>
 <script>
   const q = new URLSearchParams(location.search);
   const bg = q.get('bg'); if (bg) document.documentElement.style.setProperty('--bg', bg);
   const fg = q.get('fg'); if (fg) document.documentElement.style.setProperty('--fg', fg);
+  const accent = q.get('accent'); if (accent) document.documentElement.style.setProperty('--accent', accent);
+
+  const template = (q.get('template') || 'minimal').toLowerCase();
+  document.body.classList.add(['minimal', 'mesh', 'bold', 'terminal'].includes(template) ? template : 'minimal');
+
   const logo = q.get('logo');
   if (logo) { const el = document.getElementById('logo'); el.src = logo; el.hidden = false; }
-  document.getElementById('title').textContent = q.get('title') || '';
+
+  const title = q.get('title') || '';
+  const titleEl = document.getElementById('title');
+  const caret = document.getElementById('caret');
+  if (q.get('typewriter') && title) {
+    // Type the title out char-by-char; show the caret while typing.
+    titleEl.parentElement.style.animation = 'none';
+    titleEl.parentElement.style.opacity = '1';
+    titleEl.parentElement.style.transform = 'none';
+    caret.style.display = 'inline-block';
+    let i = 0;
+    const step = () => {
+      titleEl.textContent = title.slice(0, i);
+      if (i++ <= title.length) setTimeout(step, 55);
+    };
+    setTimeout(step, 350);
+  } else {
+    titleEl.textContent = title;
+    if (template !== 'terminal') caret.remove();
+  }
+
   const sub = q.get('subtitle');
   if (sub) document.getElementById('subtitle').textContent = sub;
   else document.getElementById('subtitle').remove();

@@ -1,0 +1,44 @@
+# Callouts / anotaciones (flecha, caja, círculo + texto) y highlight sweep, dibujados en vivo por
+# la capa de overlay (siguen al elemento bajo zoom). No necesita post-pro: se ve en la grabación.
+#
+#   node examples/mock-server.mjs
+#   node src/run.js examples/annotate.yml
+#   demo-recorder frames out/raw/<vid>.webm
+#
+# annotate/highlight usan el kit `>>>`; resetZoom y annotateOff limpian los callouts.
+
+url: http://127.0.0.1:4317/
+width: 1280
+height: 800
+scale: 2
+headless: true
+out: out
+
+steps:
+  - hold: 600
+
+  # Highlight sweep (marcador animado) sobre el título.
+  - highlight: { sel: 'h1', color: 'rgba(255,214,0,.40)' }
+  - hold: 600
+
+  # Flecha con etiqueta apuntando al campo de texto.
+  - annotate: { sel: 'demo-chat >>> textarea', shape: arrow, side: left, text: 'Escribe aquí' }
+  - hold: 800
+  - type: { sel: 'demo-chat >>> textarea', text: 'Muéstrame las ventas por región.', cps: 42 }
+  - annotateOff: true
+
+  # Caja con etiqueta sobre el botón de enviar.
+  - annotate: { sel: 'demo-chat >>> button.send', shape: box, side: bottom, text: 'Pulsa para preguntar', color: '#22D3EE' }
+  - hold: 900
+  - click: 'demo-chat >>> button.send'
+  - annotateOff: true
+
+  - waitFor: 'demo-chat table'
+  - hold: 400
+
+  # Círculo de atención sobre la tabla, combinado con zoom.
+  - zoomFit: { sel: 'demo-chat >>> table' }
+  - annotate: { sel: 'demo-chat >>> table', shape: circle, text: 'Respuesta al instante', color: '#34D399' }
+  - hold: 1800
+  - resetZoom: true   # también limpia el callout
+  - hold: 400

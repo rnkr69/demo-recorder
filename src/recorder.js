@@ -106,6 +106,21 @@ class Driver {
     this.mark('scroll', { sel });
     return this.page.evaluate(([s, o]) => window.__demo.scrollToSel(s, o), [sel, opts]);
   }
+  // Callout anchored to `sel`: opts.shape box|circle|arrow, opts.text, opts.side. resetZoom/reset
+  // (and annotateOff) clear all callouts + highlights.
+  annotate(sel, opts = {}) {
+    this.mark('annotate', { sel, shape: opts.shape || 'box' });
+    return this.page.evaluate(([s, o]) => window.__demo.annotate(s, o), [sel, opts]);
+  }
+  annotateOff() { return this.page.evaluate(() => window.__demo.annotateOff()); }
+  // Animated marker/underline wiped over `sel`'s text.
+  highlight(sel, opts = {}) {
+    this.mark('highlight', { sel });
+    return this.page.evaluate(([s, o]) => window.__demo.highlight(s, o), [sel, opts]);
+  }
+  // Name the current section. Emits a 'chapter' event (kind+text) the encode stage turns into an
+  // animated lower-third. Drawing is post-production (libass), so this is timeline-only here.
+  chapter(text) { this.mark('chapter', { text: text == null ? '' : String(text) }); }
   waitFor(selOrFn, opts = {}) {
     const timeout = this.waitTimeout || 20000; // configurable per recorder (waitTimeout)
     if (typeof selOrFn === 'function') return this.page.waitForFunction(selOrFn, undefined, { timeout, ...opts });

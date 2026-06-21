@@ -138,3 +138,49 @@ test('effects: events sidecar + intro/outro bookends + reframe', { timeout: 1800
   const square = join(out, 'final-1x1.mp4');
   assert.ok(existsSync(square) && statSync(square).size > 0, 'expected a 1:1 reframe output');
 });
+
+test('phase 2: annotate/chapter events + lower-thirds + watermark + match-cut', { timeout: 180000 }, async (t) => {
+  const skip = whySkip();
+  if (skip) { t.skip(skip); return; }
+
+  const out = mkdtempSync(join(tmpdir(), 'demorec-p2-'));
+  const server = spawn(process.execPath, [join(REPO, 'examples', 'mock-server.mjs')],
+    { stdio: 'ignore', env: { ...process.env, PORT: String(PORT) } });
+  t.after(() => {
+    try { server.kill(); } catch { /* ignore */ }
+    try { rmSync(out, { recursive: true, force: true }); } catch { /* ignore */ }
+  });
+  await waitForServer(`http://127.0.0.1:${PORT}/`);
+
+  const finalMp4 = join(out, 'p2-final.mp4');
+  const specPath = join(out, 'p2.yml');
+  // chapter + annotate emit events; lower-thirds + watermark burn over the composed final; the intro
+  // match-cut joins intro→demo with an xfade (so the final exists and is continuous). No TTS/music.
+  writeFileSync(specPath, [
+    `url: http://127.0.0.1:${PORT}/`,
+    'width: 640',
+    'height: 400',
+    'headless: true',
+    `out: ${JSON.stringify(out)}`,
+    'steps:',
+    "  - chapter: '1. Intro'",
+    "  - annotate: { sel: 'demo-chat', shape: box, text: aquí }",
+    '  - hold: 0.3',
+    '  - annotateOff: true',
+    'encode:',
+    `  mp4: ${JSON.stringify(join(out, 'p2.mp4'))}`,
+    '  lowerThirds: { hold: 2.0 }',
+    '  watermark: { text: Acme }',
+    `  intro: { engine: html, title: Hi, duration: 0.8, matchCut: true, result: ${JSON.stringify(finalMp4)} }`,
+  ].join('\n'), 'utf8');
+
+  const { runScript } = await import('../../src/run.js');
+  await runScript(specPath, {});
+
+  const rawDir = join(out, 'raw');
+  const webm = readdirSync(rawDir).filter((f) => f.endsWith('.webm') && existsSync(join(rawDir, `${f}.events.json`)))[0];
+  assert.ok(webm, 'expected a webm with an .events.json sidecar');
+  const kinds = new Set(JSON.parse(readFileSync(join(rawDir, `${webm}.events.json`), 'utf8')).events.map((e) => e.kind));
+  assert.ok(kinds.has('chapter') && kinds.has('annotate'), 'expected chapter + annotate events');
+  assert.ok(statSync(finalMp4).size > 0, 'match-cut composed final should be non-empty');
+});
