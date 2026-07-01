@@ -3,13 +3,14 @@
 // File args are resolved against YOUR current directory; the engine + node_modules live
 // in the demo-recorder install, so a single install serves every project.
 import { spawn } from 'node:child_process';
+import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve, basename } from 'node:path';
 import { runScript, runLogin, encodeOnly, probeScript } from '../src/run.js';
 import { autoContactSheet } from '../src/encode.js';
 import { cleanOut, framesDir, ensureDir } from '../src/layout.js';
 import { bundledTracks } from '../src/tracks.js';
-import { warnIfMisinstalled } from '../src/doctor.js';
+import { warnIfMisinstalled, doctorReport } from '../src/doctor.js';
 
 const PKG = dirname(dirname(fileURLToPath(import.meta.url))); // demo-recorder install root
 const argv = process.argv.slice(2);
@@ -44,6 +45,7 @@ const HELP = `demo-recorder <comando>
   tracks                                              lista la música de fondo incluida (audio/bg/) y sus alias
   login <guion.yml>                                   (re)genera la sesión storageState del bloque login
   mock                                                arranca el mock-server de ejemplo (127.0.0.1:4317)
+  doctor                                              comprueba que el CLI arranca y que ffmpeg/plataforma están OK
   help
 
 Carpeta out/:  finales sueltos en out/  ·  grabaciones en out/raw/ (últimas 3)  ·  contact-sheets en out/frames/
@@ -58,7 +60,7 @@ async function main() {
   const { positionals, flags } = parse(argv.slice(1));
   // Surface a cross-OS node_modules early (the recurring WSL/Windows trap) for the commands that
   // actually drive the native binaries. Purely informational commands don't need them.
-  if (!['help', 'tracks', 'clean', undefined, '--help', '-h'].includes(cmd)) warnIfMisinstalled();
+  if (!['help', 'tracks', 'clean', 'doctor', undefined, '--help', '-h'].includes(cmd)) warnIfMisinstalled();
   switch (cmd) {
     case 'run': {
       if (!positionals[0]) throw new Error('falta <guion.yml>');
@@ -116,6 +118,10 @@ async function main() {
       spawn(process.execPath, [join(PKG, 'examples', 'mock-server.mjs')], { stdio: 'inherit' });
       break;
     }
+    case 'doctor': {
+      if (!doctorReport()) process.exit(1);
+      break;
+    }
     case 'help': case undefined: case '--help': case '-h':
       console.log(HELP); break;
     default:
@@ -123,10 +129,20 @@ async function main() {
   }
 }
 
-// Pure flag parser + help text exposed ONLY for unit tests (not part of the public API).
-export const __test = { parse, HELP };
+// Is this module the process entry point (invoked directly), not merely imported by a test?
+// Canonicalize BOTH sides with realpathSync so the `npm link` symlink (argv[1] arrives as the
+// symlinked global-bin path while import.meta.url is already the realpath) collapses to the same
+// real file — otherwise the string compare is false and main() never runs, producing zero output.
+function isEntry(argv1, metaUrl) {
+  if (!argv1) return false;
+  const canon = (p) => { try { return realpathSync(p); } catch { return resolve(p); } };
+  return canon(argv1) === canon(fileURLToPath(metaUrl));
+}
+
+// Pure flag parser + help text + entry check exposed ONLY for unit tests (not part of the public API).
+export const __test = { parse, HELP, isEntry };
 
 // CLI guard: only run when invoked directly (not when imported by a test).
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isEntry(process.argv[1], import.meta.url)) {
   main().catch((e) => { console.error('demo-recorder:', e.message); process.exit(1); });
 }

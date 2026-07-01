@@ -37,6 +37,7 @@ demo-recorder clean [--all] [--keep N]                # tidy out/ (prune raw/, w
 demo-recorder tracks                                  # list bundled background-music aliases
 demo-recorder login <guion.yml>                       # (re)generate the storageState session
 demo-recorder mock                                    # start the example mock server (127.0.0.1:4317)
+demo-recorder doctor                                  # health-check: CLI boots + ffmpeg/platform OK (no recording needed)
 
 # Equivalent local entry points (inside this repo):
 node src/run.js examples/demo.yml      # npm run record:yaml
