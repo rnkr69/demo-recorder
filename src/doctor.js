@@ -29,3 +29,18 @@ export function checkBinaries() {
 export function warnIfMisinstalled() {
   for (const w of checkBinaries()) console.error(`⚠ demo-recorder: ${w}`);
 }
+
+// `demo-recorder doctor` — explicit health check of the installed CLI. Prints the environment and
+// the binary check so a user can confirm the command is alive WITHOUT having to record a video
+// (the trap that hid the entry-guard regression for a week). Returns true when everything is OK.
+export function doctorReport() {
+  const warns = checkBinaries();
+  console.log('demo-recorder doctor');
+  console.log(`  node        ${process.version}`);
+  console.log(`  plataforma  ${platform}/${arch}`);
+  console.log(`  ffmpeg      ${ffmpegPath && existsSync(ffmpegPath) ? 'OK' : 'NO ENCONTRADO'}`);
+  if (!warns.length) { console.log('  → CLI operativo. Todo en orden.'); return true; }
+  console.log('  → Problemas detectados:');
+  for (const w of warns) console.log(`    ⚠ ${w}`);
+  return false;
+}

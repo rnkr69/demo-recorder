@@ -1,0 +1,33 @@
+name: CI
+
+# Runs the test battery on every push and PR. The suite deliberately spawns the real bin as a
+# subprocess (incl. via a symlink, replicating `npm link`), so it exercises the ACTUAL installed
+# command — the path that broke silently for a week when only import-based unit tests were run.
+# Windows is in the matrix on purpose: the entry-guard regression was a Windows symlink/path bug.
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        # Node 20 is EOL (Apr 2026) and `node --test` glob expansion needs >=21; engines is >=22.
+        node: [22, 24]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      # Sanity-check the linked global command end to end, exactly as a consumer would install it.
+      - run: npm link
+      - run: demo-recorder doctor
+      - run: demo-recorder help
+      - run: npm test

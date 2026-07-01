@@ -1,9 +1,16 @@
-// bin/demo-recorder.js flag parser + help text (doc-rot guard).
+// bin/demo-recorder.js flag parser + help text (doc-rot guard) + CLI entry guard.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { join, dirname } from 'node:path';
+import { writeFileSync, symlinkSync } from 'node:fs';
+import { withTempDir } from '../helpers/tmp.js';
 import { __test } from '../../bin/demo-recorder.js';
 
-const { parse, HELP } = __test;
+const { parse, HELP, isEntry } = __test;
+
+const BIN = fileURLToPath(new URL('../../bin/demo-recorder.js', import.meta.url));
+const BIN_URL = pathToFileURL(BIN).href;
 
 test('--no-encode flag and positionals in order', () => {
   const { positionals, flags } = parse(['run', 'x.yml', '--no-encode']);
@@ -31,7 +38,29 @@ test('flags interleaved with positionals keep positional order', () => {
 });
 
 test('HELP documents every command (doc-rot guard)', () => {
-  for (const cmd of ['run', 'record', 'encode', 'probe', 'frames', 'clean', 'tracks', 'login', 'mock']) {
+  for (const cmd of ['run', 'record', 'encode', 'probe', 'frames', 'clean', 'tracks', 'login', 'mock', 'doctor']) {
     assert.ok(HELP.includes(cmd), `HELP should mention "${cmd}"`);
   }
+});
+
+test('isEntry: invocación directa (argv[1] === módulo) → true', () => {
+  assert.ok(isEntry(BIN, BIN_URL));
+});
+
+test('isEntry: importado por otro proceso / sin argv[1] → false', () => {
+  assert.ok(!isEntry(join(dirname(BIN), 'otro-proceso.js'), BIN_URL));
+  assert.ok(!isEntry(undefined, BIN_URL));
+});
+
+// Regresión: bajo `npm link` argv[1] llega como el path del symlink y import.meta.url es el path
+// real; sin canonicalizar por realpath el guard daría false y el CLI global saldría mudo.
+test('isEntry: argv[1] symlinkeado (npm link) resuelve al módulo real → true', () => {
+  withTempDir((dir) => {
+    const real = join(dir, 'real-entry.js');
+    writeFileSync(real, '// entry');
+    const link = join(dir, 'linked-entry.js');
+    try { symlinkSync(real, link); }
+    catch { return; } // el SO no permite symlinks sin privilegios (Windows sin dev-mode) → se omite
+    assert.ok(isEntry(link, pathToFileURL(real).href));
+  });
 });

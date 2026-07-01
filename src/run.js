@@ -8,7 +8,7 @@
 //     `host >>> inner` syntax to pierce shadow DOM.
 //   - waitFor goes through Playwright → use Playwright CSS (it pierces OPEN shadow roots
 //     automatically, e.g. `demo-chat table`).
-import { readFileSync, existsSync, readdirSync, statSync, renameSync, unlinkSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync, statSync, renameSync, unlinkSync, realpathSync } from 'node:fs';
 import { resolve, join, dirname, basename } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parse } from 'yaml';
@@ -554,8 +554,10 @@ export async function probeScript(file, { from, to } = {}) {
 // Pure helpers exposed ONLY for unit tests (not part of the public API).
 export const __test = { subEnv, sliceSteps, norm, sessionOpts, preflight, runStep };
 
-// CLI guard: `node src/run.js <guion.yml>` still works standalone.
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+// CLI guard: `node src/run.js <guion.yml>` still works standalone. Canonicalize both paths with
+// realpathSync so a symlinked invocation (e.g. via `npm link`) still resolves to this real file.
+const canon = (p) => { try { return realpathSync(p); } catch { return resolve(p); } };
+if (process.argv[1] && canon(process.argv[1]) === canon(fileURLToPath(import.meta.url))) {
   const file = process.argv[2];
   if (!file) { console.error('usage: node src/run.js <guion.yml|guion.json>'); process.exit(1); }
   runScript(file).catch((err) => { console.error(err.message); process.exit(1); });
